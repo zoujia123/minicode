@@ -15,6 +15,15 @@ import { SkillHubProvider, installRemoteSkill, planSkillInstall } from "../skill
 import type { SkillInstallPlan, SkillInstallResult } from "../skillhub/types"
 import { createMCPClient, inspectMCPServers } from "../mcp/status"
 import { mcpToolsToDefinitions } from "../mcp/tools"
+import {
+  CHAT_COMMANDS,
+  applySlashCompletion,
+  formatChatHelp,
+  matchingSlashCommands,
+  slashCommandNames,
+  slashCommandToken,
+  type ChatCommandDefinition,
+} from "./commands"
 import { CliTraceRenderer } from "./trace"
 import { createTerminal, displayWidth, divider, oneLine, panel, panelWidthForTerminal, renderMarkdown, stripAnsi, table } from "./terminal"
 import type { AgentEvent } from "../agent/events"
@@ -29,12 +38,17 @@ type ChatInput = {
   isTTY: boolean
   echoesUserInput: boolean
   writesPrompt: boolean
-  question(prompt: string): Promise<string | undefined>
+  question(prompt: string, options?: ChatQuestionOptions): Promise<string | undefined>
   prompt(): void
   interrupt(): void
   suspend?(): void
   resume?(): void
   close(): void
+}
+
+type ChatQuestionOptions = {
+  slashCommands?: readonly ChatCommandDefinition[]
+  terminal?: ReturnType<typeof createTerminal>
 }
 
 const HELP = `minicode ${VERSION}
@@ -413,8 +427,13 @@ async function chatCommand(args: string[]): Promise<CliResult> {
   }
   const sessionFlag = takeFlagValue(args, "--session")
   let activeSessionId = sessionFlag.value ?? (has(args, "-c", "--continue") ? await latestSessionId(runtime) : undefined)
-  if (process.stdout.isTTY) clearTerminalForChat()
-  process.stdout.write(`${await renderChatBanner(runtime, terminal, permissionMode, activeSessionId)}\n\n`)
+  const redrawBanner = async (notice?: string, options: { clearScrollback?: boolean } = {}) => {
+    if (process.stdout.isTTY) clearTerminalForChat({ clearScrollback: options.clearScrollback ?? true })
+    process.stdout.write(`${await renderChatBanner(runtime, terminal, permissionMode, activeSessionId)}\n`)
+    if (notice) process.stdout.write(`${terminal.gray(notice)}\n`)
+    process.stdout.write("\n")
+  }
+  await redrawBanner()
   let output = ""
   let interruptArmed = false
   let exitRequested = false
@@ -466,7 +485,8 @@ async function chatCommand(args: string[]): Promise<CliResult> {
         continue
       }
       if (command === "/clear") {
-        process.stdout.write(process.stdout.isTTY ? clearTerminalSequence() : "\n")
+        if (process.stdout.isTTY) await redrawBanner("Visible transcript hidden. Session history and context were kept.", { clearScrollback: false })
+        else process.stdout.write("\n")
         continue
       }
       if (command === "/tools") {
@@ -541,6 +561,9 @@ async function chatCommand(args: string[]): Promise<CliResult> {
             output += event.text
             stats.outputTokens += approximateTokens(event.text)
           }
+          if (event.type === "assistant_progress_delta") {
+            stats.outputTokens += approximateTokens(event.text)
+          }
         }
       } finally {
         activeController = undefined
@@ -604,7 +627,7 @@ async function askChatInput(
   options: { model: string; permissionMode: PermissionMode; activeSessionId?: string; interruptArmed: boolean },
 ) {
   const prompt = chatPrompt(terminal, options)
-  const firstLine = await input.question(prompt)
+  const firstLine = await input.question(prompt, { slashCommands: CHAT_COMMANDS, terminal })
   if (firstLine === undefined || firstLine === CHAT_CTRL_C) return firstLine
   if (firstLine.trim() !== "/paste") return firstLine
 
@@ -651,11 +674,19 @@ async function createChatInput(): Promise<ChatInput> {
       isTTY: true,
       echoesUserInput: true,
       writesPrompt: true,
-      async question(prompt: string) {
+      async question(prompt: string, options?: ChatQuestionOptions) {
         if (closed) rl = createReadline()
         const controller = new AbortController()
         pendingQuestion = controller
         try {
+          if (canUseRawSlashCompletion(options)) {
+            rememberHistory()
+            if (!closed) rl.close()
+            const line = await askSlashCompletingLine(prompt, options.slashCommands, options.terminal, history, controller.signal)
+            if (line !== undefined && line !== CHAT_CTRL_C) history = rememberChatHistory(history, line)
+            if (closed) rl = createReadline()
+            return line
+          }
           return await askReadline(rl, prompt, controller.signal)
         } finally {
           if (pendingQuestion === controller) pendingQuestion = undefined
@@ -727,6 +758,246 @@ async function askReadline(rl: ReturnType<typeof createInterface>, prompt: strin
   }
 }
 
+function canUseRawSlashCompletion(
+  options?: ChatQuestionOptions,
+): options is ChatQuestionOptions & { slashCommands: readonly ChatCommandDefinition[]; terminal: ReturnType<typeof createTerminal> } {
+  const stdin = process.stdin as typeof process.stdin & { setRawMode?: (mode: boolean) => typeof process.stdin }
+  return Boolean(options?.slashCommands?.length && options.terminal && process.stdin.isTTY && process.stdout.isTTY && stdin.setRawMode)
+}
+
+function rememberChatHistory(history: string[], line: string) {
+  const value = line.trimEnd()
+  if (!value.trim()) return history
+  return [value, ...history.filter((item) => item !== value)].slice(0, 500)
+}
+
+async function askSlashCompletingLine(
+  prompt: string,
+  commands: readonly ChatCommandDefinition[],
+  terminal: ReturnType<typeof createTerminal>,
+  history: string[],
+  signal?: AbortSignal,
+) {
+  const stdin = process.stdin as typeof process.stdin & {
+    isRaw?: boolean
+    setRawMode?: (mode: boolean) => typeof process.stdin
+  }
+  const wasRaw = Boolean(stdin.isRaw)
+  let buffer = ""
+  let cursor = 0
+  let selected = 0
+  let historyIndex = -1
+  let historyDraft = ""
+  let renderedRows = 0
+  let cursorRaisedRows = 0
+  const frameWidth = inputFrameWidth(terminal)
+
+  const erase = () => {
+    if (!renderedRows) return
+    if (cursorRaisedRows > 0) process.stdout.write(`\x1b[${cursorRaisedRows}B`)
+    if (renderedRows > 1) process.stdout.write(`\x1b[${renderedRows - 1}A`)
+    for (let row = 0; row < renderedRows; row += 1) {
+      process.stdout.write("\r\x1b[2K")
+      if (row < renderedRows - 1) process.stdout.write("\x1b[1B")
+    }
+    if (renderedRows > 1) process.stdout.write(`\x1b[${renderedRows - 1}A`)
+    process.stdout.write("\r")
+    renderedRows = 0
+    cursorRaisedRows = 0
+  }
+
+  const matches = () => {
+    const token = slashCommandToken(buffer)
+    if (!token) return []
+    if (buffer.slice(token.end).trim()) return []
+    return matchingSlashCommands(buffer, commands).slice(0, 6)
+  }
+
+  const completionLines = () => {
+    const list = matches()
+    if (!list.length) return []
+    selected = Math.min(selected, list.length - 1)
+    const nameWidth = list.reduce((width, command) => Math.max(width, command.name.length), 0)
+    const descriptionWidth = Math.max(12, frameWidth - nameWidth - 5)
+    return list.map((command, index) => {
+      const marker = index === selected ? terminal.blue(">") : " "
+      const name = terminal.blue(command.name.padEnd(nameWidth))
+      const descriptionText = oneLine(command.description, descriptionWidth)
+      const description = index === selected ? terminal.bold(descriptionText) : terminal.gray(descriptionText)
+      return `${marker} ${name}  ${description}`
+    })
+  }
+
+  const render = () => {
+    erase()
+    const lines = [divider(frameWidth, terminal), `${prompt}${buffer}`, divider(frameWidth, terminal), ...completionLines()]
+    process.stdout.write(lines.join("\n"))
+    renderedRows = renderedRowCount(lines, terminal)
+    const rowsBelowInput = Math.max(0, lines.length - 2)
+    if (rowsBelowInput > 0) process.stdout.write(`\x1b[${rowsBelowInput}A`)
+    cursorRaisedRows = rowsBelowInput
+    const column = displayWidth(prompt) + displayWidth(buffer.slice(0, cursor))
+    process.stdout.write(`\r${column > 0 ? `\x1b[${column}C` : ""}`)
+  }
+
+  const setBuffer = (value: string) => {
+    buffer = value
+    cursor = buffer.length
+    selected = 0
+  }
+
+  const completeSelection = () => {
+    const list = matches()
+    const picked = list[selected]
+    if (!picked) return false
+    setBuffer(applySlashCompletion(buffer, picked.name))
+    return true
+  }
+
+  const recallHistory = (delta: number) => {
+    if (!history.length) return
+    if (historyIndex === -1) historyDraft = buffer
+    historyIndex = Math.max(-1, Math.min(history.length - 1, historyIndex + delta))
+    setBuffer(historyIndex === -1 ? historyDraft : (history[historyIndex] ?? ""))
+  }
+
+  stdin.setRawMode?.(true)
+  stdin.resume()
+  render()
+
+  return await new Promise<string | undefined>((resolve) => {
+    let resolved = false
+    const cleanup = () => {
+      stdin.off("data", onData)
+      signal?.removeEventListener("abort", onAbort)
+      stdin.setRawMode?.(wasRaw)
+    }
+    const choose = (value: string | undefined) => {
+      if (resolved) return
+      resolved = true
+      erase()
+      if (value !== undefined && value !== CHAT_CTRL_C) {
+        process.stdout.write(`${divider(frameWidth, terminal)}\n${prompt}${value}\n${divider(frameWidth, terminal)}\n`)
+      }
+      cleanup()
+      resolve(value)
+    }
+    const onAbort = () => choose(CHAT_CTRL_C)
+    const insert = (value: string) => {
+      buffer = `${buffer.slice(0, cursor)}${value}${buffer.slice(cursor)}`
+      cursor += value.length
+      selected = 0
+      historyIndex = -1
+    }
+    const removeBeforeCursor = () => {
+      if (cursor <= 0) return
+      buffer = `${buffer.slice(0, cursor - 1)}${buffer.slice(cursor)}`
+      cursor -= 1
+      selected = 0
+      historyIndex = -1
+    }
+    const removeAtCursor = () => {
+      if (cursor >= buffer.length) return
+      buffer = `${buffer.slice(0, cursor)}${buffer.slice(cursor + 1)}`
+      selected = 0
+      historyIndex = -1
+    }
+    const moveSelection = (delta: number) => {
+      const list = matches()
+      if (!list.length) {
+        recallHistory(delta)
+        return
+      }
+      selected = (selected + delta + list.length) % list.length
+    }
+    const onData = (chunk: Buffer | string) => {
+      const keys = chunk.toString("utf8")
+      for (let index = 0; index < keys.length && !resolved; ) {
+        const rest = keys.slice(index)
+        const key = keys[index] ?? ""
+        if (rest.startsWith("\x1b[A")) {
+          moveSelection(-1)
+          index += 3
+          continue
+        }
+        if (rest.startsWith("\x1b[B")) {
+          moveSelection(1)
+          index += 3
+          continue
+        }
+        if (rest.startsWith("\x1b[C")) {
+          cursor = Math.min(buffer.length, cursor + 1)
+          index += 3
+          continue
+        }
+        if (rest.startsWith("\x1b[D")) {
+          cursor = Math.max(0, cursor - 1)
+          index += 3
+          continue
+        }
+        if (rest.startsWith("\x1b[3~")) {
+          removeAtCursor()
+          index += 4
+          continue
+        }
+        if (key === "\t") {
+          completeSelection()
+          index += 1
+          continue
+        }
+        if (key === "\r" || key === "\n") {
+          const list = matches()
+          const token = slashCommandToken(buffer)
+          if (list.length && token && token.token !== list[selected]?.name) completeSelection()
+          choose(buffer)
+          index += 1
+          continue
+        }
+        if (key === "\x03") {
+          choose(CHAT_CTRL_C)
+          index += 1
+          continue
+        }
+        if (key === "\x04") {
+          choose(buffer ? buffer : undefined)
+          index += 1
+          continue
+        }
+        if (key === "\x7f" || key === "\b") {
+          removeBeforeCursor()
+          index += 1
+          continue
+        }
+        if (key === "\x01") {
+          cursor = 0
+          index += 1
+          continue
+        }
+        if (key === "\x05") {
+          cursor = buffer.length
+          index += 1
+          continue
+        }
+        if (key === "\x1b") {
+          selected = 0
+          index += 1
+          continue
+        }
+        if (key >= " ") {
+          insert(key)
+          index += 1
+          continue
+        }
+        index += 1
+      }
+      if (!resolved) render()
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    stdin.on("data", onData)
+  })
+}
+
 function isReadlineControlError(error: unknown, code: "SIGINT" | "EOF") {
   if (isRecord(error) && error.code === code) return true
   return code === "EOF" && error instanceof Error && /readline was closed/i.test(error.message)
@@ -737,23 +1008,24 @@ function isAbortError(error: unknown) {
   return error.name === "AbortError" || error.code === "ABORT_ERR" || error.code === "ERR_ABORTED"
 }
 
-function clearTerminalForChat() {
-  process.stdout.write(clearTerminalSequence())
+function clearTerminalForChat(options: { clearScrollback?: boolean } = {}) {
+  process.stdout.write(clearTerminalSequence(options))
 }
 
-function clearTerminalSequence() {
-  return "\x1b[H\x1b[2J\x1b[3J\x1b[H"
+function clearTerminalSequence(options: { clearScrollback?: boolean } = {}) {
+  return `\x1b[H\x1b[2J${options.clearScrollback === false ? "" : "\x1b[3J"}\x1b[H`
 }
 
 function chatPrompt(
   terminal: ReturnType<typeof createTerminal>,
   options: { model: string; permissionMode: PermissionMode; activeSessionId?: string; interruptArmed: boolean },
 ) {
-  if (terminal.width >= 88) {
-    const width = panelWidthForTerminal(terminal.width)
-    return `${divider(width, terminal)}\n${terminal.blue(">")} `
-  }
   return `${terminal.blue(">")} `
+}
+
+function inputFrameWidth(terminal: ReturnType<typeof createTerminal>) {
+  const columns = Math.max(40, process.stdout.columns ?? terminal.width)
+  return Math.max(40, Math.min(columns - 2, panelWidthForTerminal(columns)))
 }
 
 function stripPromptAnsi(value: string) {
@@ -771,20 +1043,7 @@ function shortSession(sessionId: string) {
 }
 
 function chatHelp() {
-  return [
-    "Slash commands:",
-    "/help     show this help",
-    "/clear    clear the terminal",
-    "/paste    enter multiline input; finish with '.', cancel with /cancel",
-    "/tools    list available tools",
-    "/session  show the active session",
-    "/model    show the active model",
-    "/config   show or set provider config",
-    "/mcp      show MCP server status",
-    "/skills   list discovered skills",
-    "/doctor   run local diagnostics",
-    "/exit     exit chat",
-  ].join("\n")
+  return formatChatHelp(CHAT_COMMANDS)
 }
 
 function renderChatUserMessage(message: string, terminal: ReturnType<typeof createTerminal>, alreadyEchoed = false) {
@@ -840,7 +1099,7 @@ function createChatRunStatus(terminal: ReturnType<typeof createTerminal>, stats:
         detail = `${event.name} ${event.ok ? "finished" : "failed"}`
         this.finish()
       }
-      if (event.type === "llm_text_delta" || event.type === "message" || event.type === "error") this.finish()
+      if (event.type === "assistant_progress_delta" || event.type === "llm_text_delta" || event.type === "message" || event.type === "error") this.finish()
     },
     pause() {
       if (done) return
@@ -1623,7 +1882,7 @@ function streamInitEvent(
     mcp_servers: Object.keys(runtime.config.mcp).sort((a, b) => a.localeCompare(b)),
     model: runtime.config.model,
     permissionMode: options.permissionMode,
-    slash_commands: ["help", "clear", "paste", "tools", "session", "model", "config", "mcp", "skills", "doctor", "exit"],
+    slash_commands: slashCommandNames(CHAT_COMMANDS),
     output_style: options.outputStyle,
     __timestamp: new Date().toISOString(),
   }
@@ -1637,6 +1896,13 @@ function toStreamJsonEvent(event: AgentEvent, sessionId: string | undefined) {
   switch (event.type) {
     case "session_created":
       return { ...base, type: "system", subtype: "session", session_id: event.sessionId, uuid: event.sessionId }
+    case "assistant_progress_delta":
+      return {
+        ...base,
+        type: "assistant",
+        subtype: "progress",
+        message: { role: "assistant", content: [{ type: "text", text: event.text }], status: "in_progress" },
+      }
     case "llm_text_delta":
       return undefined
     case "tool_call":

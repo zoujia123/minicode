@@ -64,6 +64,7 @@ export class AgentRunner {
 
       const toolCalls = []
       let assistantText = ""
+      let progressYielded = false
       try {
         for await (const event of this.options.llm.stream(
           {
@@ -78,6 +79,10 @@ export class AgentRunner {
             assistantText += event.text
           }
           if (event.type === "tool_call") {
+            if (!progressYielded && assistantText.trim()) {
+              progressYielded = true
+              yield { type: "assistant_progress_delta", text: assistantText.trim() }
+            }
             toolCalls.push(event.call)
             yield { type: "tool_call", id: event.call.id, name: event.call.name, input: event.call.input }
           }

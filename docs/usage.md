@@ -111,7 +111,7 @@ File tools and shell commands run inside that directory, so task artifacts do no
 
 Use `-c` / `--continue` to resume the most recently updated session. `minicode session resume` prints that latest session id for scripts.
 
-In `minicode chat`, use `/help` for slash commands and `/clear` to clear the terminal. Use `/paste` for multiline input, finish with a single `.`, and cancel the buffer with `/cancel` or Ctrl-C. Blank input is ignored instead of exiting. Ctrl-D exits cleanly. Ctrl-C once warns at the prompt or cancels an active run; Ctrl-C again exits.
+In `minicode chat`, use `/help` for slash commands and `/clear` to hide the visible transcript while keeping the active session and context. Use `/paste` for multiline input, finish with a single `.`, and cancel the buffer with `/cancel` or Ctrl-C. Blank input is ignored instead of exiting. Ctrl-D exits cleanly. Ctrl-C once warns at the prompt or cancels an active run; Ctrl-C again exits.
 
 When `chat` asks for a risky tool permission, answer `y` to allow once, `a` to allow matching requests for the current chat session, or press Enter/`n` to deny once.
 

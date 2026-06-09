@@ -40,6 +40,9 @@ export class CliTraceRenderer {
 
   handle(event: AgentEvent) {
     switch (event.type) {
+      case "assistant_progress_delta":
+        this.progress(event.text)
+        return
       case "tool_call":
         this.toolCall(event)
         return
@@ -57,6 +60,21 @@ export class CliTraceRenderer {
     }
   }
 
+  private progress(text: string) {
+    const lines = text
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+    for (const line of lines) {
+      if (this.style === "codebuddy") {
+        this.writeTrace(`${this.terminal.blue("●")} ${oneLine(line, 180)}\n`)
+      } else {
+        this.writeTrace(`${this.terminal.dim("note")} ${oneLine(line, 180)}\n`)
+      }
+    }
+  }
+
   finish() {
     if (this.answerStarted) this.write("\n")
   }
@@ -65,7 +83,7 @@ export class CliTraceRenderer {
     const input = objectValue(event.input)
     this.activeTools.set(event.id, { name: event.name, input, startedAt: this.now() })
     if (this.style === "codebuddy") {
-      this.writeTrace(`${this.terminal.blue("●")} ${formatToolCall(event.name, input, this.terminal)}\n`)
+      this.writeTrace(`${this.terminal.blue("●")} ${formatCodeBuddyToolCall(event.name, input, this.terminal)}\n`)
       return
     }
     this.writeTrace(`${this.terminal.dim("tool")} ${formatToolCall(event.name, input, this.terminal)}\n`)
@@ -77,7 +95,10 @@ export class CliTraceRenderer {
 
     const elapsedMs = active ? Math.max(0, this.now() - active.startedAt) : undefined
     const metadata = objectValue(event.metadata)
-    const line = formatToolResult(event, metadata, elapsedMs, this.terminal)
+    const line =
+      this.style === "codebuddy"
+        ? formatCodeBuddyToolResult(event, metadata, elapsedMs, this.terminal, active)
+        : formatToolResult(event, metadata, elapsedMs, this.terminal)
     if (this.style === "codebuddy") {
       this.writeTrace(`  ${this.terminal.gray("⎿")} ${line}\n`)
     } else {
@@ -177,6 +198,30 @@ function formatToolCall(name: string, input: JsonObject, terminal: Terminal) {
   }
 }
 
+function formatCodeBuddyToolCall(name: string, input: JsonObject, terminal: Terminal) {
+  const targetWidth = (reserved = 18) => Math.max(24, Math.min(180, terminal.width - reserved))
+  const call = (label: string, value?: string) => {
+    const suffix = value ? oneLine(value, targetWidth(label.length + 8)) : ""
+    return `${terminal.blue(label)}(${suffix})`
+  }
+  const lower = name.toLowerCase()
+  if (name === "shell") return call("Bash", stringValue(input, "command") || "(empty command)")
+  if (name === "read") return call("Read", stringValue(input, "path") || "(missing path)")
+  if (name === "grep") {
+    const query = stringValue(input, "query")
+    const path = stringValue(input, "path")
+    return call("Search", path ? `${query} in ${path}` : query)
+  }
+  if (name === "glob") return call("Glob", stringValue(input, "pattern") || "(missing pattern)")
+  if (name === "write") return call("Write", stringValue(input, "path") || "(missing path)")
+  if (name === "edit") return call("Edit", stringValue(input, "path") || "(missing path)")
+  if (name === "patch") return call("Patch", stringValue(input, "path") || "(missing path)")
+  if (name === "skill") return call("Skill", stringValue(input, "name") || "(missing name)")
+  if (lower.includes("fetch")) return call("Fetch", stringValue(input, "url") || stringValue(input, "path") || inputSummary(input))
+  if (lower.includes("search")) return call("Search", stringValue(input, "query") || inputSummary(input))
+  return call(titleCaseToolName(name), inputSummary(input).replace(/^\s*\[/, "").replace(/\]\s*$/, ""))
+}
+
 function formatToolResult(
   event: Extract<AgentEvent, { type: "tool_result" }>,
   metadata: JsonObject,
@@ -193,12 +238,68 @@ function formatToolResult(
   return parts.join(" ")
 }
 
+function formatCodeBuddyToolResult(
+  event: Extract<AgentEvent, { type: "tool_result" }>,
+  metadata: JsonObject,
+  elapsedMs: number | undefined,
+  terminal: Terminal,
+  active?: ActiveTool,
+) {
+  const input = active?.input ?? {}
+  const name = event.name.toLowerCase()
+  const ok = event.ok
+  const prefix = ok ? terminal.green("✓") : terminal.red("✗")
+  const elapsed = elapsedMs === undefined ? "" : ` · ${formatDuration(elapsedMs)}`
+  const exitCode = numberValue(metadata, "exitCode")
+  const path = stringValue(metadata, "path") || stringValue(input, "path")
+  const url = stringValue(input, "url")
+  const query = stringValue(input, "query")
+  const count = nonEmptyLineCount(event.content)
+
+  if (event.name === "write") return ok ? `${prefix} Wrote ${path || "file"}${elapsed}` : `${prefix} Write failed${elapsed}`
+  if (event.name === "edit" || event.name === "patch") return ok ? `${prefix} Updated ${path || "file"}${elapsed}` : `${prefix} Update failed${elapsed}`
+  if (event.name === "read") return ok ? `${prefix} Read ${path || "file"} (${formatBytes(Buffer.byteLength(event.content))})${elapsed}` : `${prefix} Read failed${elapsed}`
+  if (event.name === "glob") {
+    const pattern = stringValue(input, "pattern")
+    return ok ? `Found ${count} ${count === 1 ? "file" : "files"}${pattern ? ` for "${oneLine(pattern, 80)}"` : ""}${elapsed}` : `${prefix} Glob failed${elapsed}`
+  }
+  if (event.name === "grep" || name.includes("search")) {
+    if (!ok) return `${prefix} Search failed${elapsed}`
+    if (/^No matches\s*$/i.test(stripAnsi(event.content).trim())) return `No matches${query ? ` for "${oneLine(query, 80)}"` : ""}${elapsed}`
+    return `Found ${count} ${count === 1 ? "result" : "results"}${query ? ` for "${oneLine(query, 80)}"` : ""}${elapsed}`
+  }
+  if (name.includes("fetch")) {
+    return ok ? `${prefix} Fetched content${url ? ` from ${oneLine(url, 120)}` : ""}${elapsed}` : `${prefix} Fetch failed${elapsed}`
+  }
+  if (event.name === "shell") {
+    const exit = exitCode === undefined ? "" : ` exit=${exitCode}`
+    return ok ? `${prefix} Completed bash command${exit}${elapsed}` : `${prefix} Bash failed${exit}${elapsed}`
+  }
+  const fallback = formatToolResult(event, metadata, elapsedMs, terminal)
+  return ok ? fallback : `${prefix} ${fallback}`
+}
+
 function inputSummary(input: JsonObject) {
   const values = Object.entries(input)
     .filter(([, value]) => typeof value === "string" || typeof value === "number" || typeof value === "boolean")
     .slice(0, 3)
     .map(([key, value]) => `${key}=${oneLine(String(value), 60)}`)
   return values.length ? ` [${values.join(", ")}]` : ""
+}
+
+function nonEmptyLineCount(content: string) {
+  return stripAnsi(content)
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .filter((line) => line.trim() && !/^exitCode:\s*/i.test(line) && !/^timedOut:\s*/i.test(line)).length
+}
+
+function titleCaseToolName(name: string) {
+  return name
+    .split(/[_:-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join("")
 }
 
 function quote(value: string) {

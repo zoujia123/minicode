@@ -48,6 +48,53 @@ describe("agent runner", () => {
     expect(events.some((event) => event.type === "message" && event.content === "pong")).toBe(true)
   })
 
+  test("emits assistant progress before tool calls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "minicode-agent-progress-"))
+    const llm = new ScriptedLLMClient([
+      [
+        { type: "text_start" },
+        { type: "text_delta", text: "我先查看一下文件。" },
+        { type: "tool_call", call: { id: "call_1", name: "echo", input: { text: "ping" } } },
+        { type: "finish", reason: "tool_calls" },
+      ],
+      [{ type: "text_start" }, { type: "text_delta", text: "FINAL: pong" }, { type: "text_end", text: "FINAL: pong" }, { type: "finish", reason: "stop" }],
+    ])
+    const tools = new ToolRegistry().register({
+      name: "echo",
+      description: "echo",
+      inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+      async execute(input) {
+        return { ok: true, content: String(input.text), data: input }
+      },
+    })
+    const runner = new AgentRunner({
+      llm,
+      tools,
+      sessions: new MemorySessionStore(),
+      model: "scripted",
+      systemPrompt: "test",
+      maxSteps: 4,
+      toolContext: {
+        cwd: root,
+        workspaceRoot: root,
+        permissions: new StaticPermissionManager([{ tool: "*", action: "allow" }]),
+        pathGuard: new PathGuard({ workspaceRoot: root, workspaceOnly: true }),
+        config: { shellTimeoutMs: 500, outputMaxBytes: 4_000, envAllowlist: ["PATH"] },
+      },
+    })
+
+    const events = []
+    for await (const event of runner.run({ message: "go" })) events.push(event)
+
+    expect(events.map((event) => event.type).slice(0, 4)).toEqual([
+      "session_created",
+      "assistant_progress_delta",
+      "tool_call",
+      "tool_result",
+    ])
+    expect(events.find((event) => event.type === "assistant_progress_delta")).toMatchObject({ text: "我先查看一下文件。" })
+  })
+
   test("stops on LLM error events", async () => {
     const root = await mkdtemp(join(tmpdir(), "minicode-agent-error-"))
     const runner = new AgentRunner({

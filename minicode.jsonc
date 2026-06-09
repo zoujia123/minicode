@@ -1,11 +1,11 @@
 {
   "$schema": "./schema/minicode.schema.json",
-  "model": "deepseek-ai/DeepSeek-V3.2",
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
   "providers": {
     "openai-compatible": {
       "baseURL": "https://api.siliconflow.cn/v1",
       "type": "openai-compatible",
-      "apiKey": "sk-gxkqmebkuksmrmdrwqatxxgsigyawpabspxcqaifxykskyxp"
+      "apiKey": "sk-yayshjcwlttywmjqeudokdsfxbieqijgvlrnzirxayqluqrs"
     }
   },
   "agents": {

@@ -3,12 +3,13 @@ import { describe, expect, test } from "bun:test"
 import type { AgentEvent } from "../../src/agent/events"
 import { CliTraceRenderer } from "../../src/cli/trace"
 
-function render(events: AgentEvent[], ticks?: number[]) {
+function render(events: AgentEvent[], ticks?: number[], style?: "compact" | "codebuddy") {
   const chunks: string[] = []
   let index = 0
   const renderer = new CliTraceRenderer({
     write: (chunk) => chunks.push(chunk),
     now: () => ticks?.[index++] ?? 0,
+    ...(style ? { style } : {}),
   })
   for (const event of events) renderer.handle(event)
   renderer.finish()
@@ -84,5 +85,29 @@ describe("CliTraceRenderer", () => {
     expect(output).toContain("tool read docs/usage.md")
     expect(output).toContain("tool grep \"weather\" in docs")
     expect(output).toContain("tool write docs/weather.md")
+  })
+
+  test("renders CodeBuddy-style progress and tool summaries", () => {
+    const output = render(
+      [
+        { type: "assistant_progress_delta", text: "我先搜索相关论文，然后整理成 Markdown。" },
+        { type: "tool_call", id: "search_1", name: "grep", input: { query: "agent sandbox", path: "papers" } },
+        { type: "tool_result", id: "search_1", name: "grep", ok: true, content: "paper-a\npaper-b" },
+        { type: "tool_call", id: "fetch_1", name: "webfetch", input: { url: "https://arxiv.org/abs/2604.23425" } },
+        { type: "tool_result", id: "fetch_1", name: "webfetch", ok: true, content: "title\nabstract" },
+        { type: "tool_call", id: "write_1", name: "write", input: { path: "agent_sandbox_papers.md", content: "# Papers" } },
+        { type: "tool_result", id: "write_1", name: "write", ok: true, content: "Changed agent_sandbox_papers.md", metadata: { path: "agent_sandbox_papers.md" } },
+      ],
+      [0, 50, 100, 180, 220, 260],
+      "codebuddy",
+    )
+
+    expect(output).toContain("● 我先搜索相关论文，然后整理成 Markdown。")
+    expect(output).toContain("● Search(agent sandbox in papers)")
+    expect(output).toContain("⎿ Found 2 results for \"agent sandbox\"")
+    expect(output).toContain("● Fetch(https://arxiv.org/abs/2604.23425)")
+    expect(output).toContain("⎿ ✓ Fetched content from https://arxiv.org/abs/2604.23425")
+    expect(output).toContain("● Write(agent_sandbox_papers.md)")
+    expect(output).toContain("⎿ ✓ Wrote agent_sandbox_papers.md")
   })
 })

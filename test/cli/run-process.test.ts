@@ -85,7 +85,10 @@ describe("minicode run subprocess", () => {
 
       expectExit(result, 0)
       const events = parseJsonEvents<Record<string, any>>(result.stdout)
-      expect(events[0]).toMatchObject({ type: "system", subtype: "init", permissionMode: "bypassPermissions" })
+      const init = events[0]!
+      expect(init).toMatchObject({ type: "system", subtype: "init", permissionMode: "bypassPermissions" })
+      expect(init.slash_commands).toContain("clear")
+      expect(init.slash_commands).toContain("config")
       expect(events.some((event) => event.type === "assistant" && event.message?.content?.[0]?.type === "tool_use")).toBe(true)
       expect(events.some((event) => event.type === "user" && event.message?.content?.[0]?.type === "tool_result")).toBe(true)
       expect(events.filter((event) => event.type === "assistant" && event.message?.content?.[0]?.type === "text")).toHaveLength(1)
