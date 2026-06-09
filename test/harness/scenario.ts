@@ -5,7 +5,7 @@ import { dirname, join, relative } from "node:path"
 import type { AgentEvent } from "../../src/agent/events"
 import type { JsonValue } from "../../src/shared/json"
 import type { FakeLLMServer, Hit, Match, Usage } from "./llm-server"
-import { parseJsonEvents, type MinicodeProcessResult, type MinicodeRunOptions, withMinicodeFixture } from "./minicode-process"
+import { parseJsonEvents, type PixiuProcessResult, type PixiuRunOptions, withPixiuFixture } from "./pixiu-process"
 
 type ScenarioStep = (llm: FakeLLMServer) => void
 
@@ -15,7 +15,7 @@ export type Scenario = {
   name: string
   prompt: string
   replies: ScenarioStep[]
-  run?: MinicodeRunOptions
+  run?: PixiuRunOptions
   expect?: {
     exitCode?: number
     timedOut?: boolean
@@ -35,7 +35,7 @@ export type Scenario = {
 }
 
 export type ScenarioResult = {
-  result: MinicodeProcessResult
+  result: PixiuProcessResult
   events: AgentEvent[]
   hits: Hit[]
   sessionId?: string
@@ -94,8 +94,8 @@ export function requestHasToolResult(name?: string): Match {
 }
 
 export async function runScenario(input: Scenario): Promise<ScenarioResult> {
-  return withMinicodeFixture(async (fixture) => {
-    let result: MinicodeProcessResult | undefined
+  return withPixiuFixture(async (fixture) => {
+    let result: PixiuProcessResult | undefined
     let events: AgentEvent[] = []
     try {
       for (const reply of input.replies) reply(fixture.llm)
@@ -126,7 +126,7 @@ export async function runScenario(input: Scenario): Promise<ScenarioResult> {
 async function assertScenario(
   input: Scenario,
   context: {
-    result: MinicodeProcessResult
+    result: PixiuProcessResult
     events: AgentEvent[]
     hits: Hit[]
     projectDir: string
@@ -251,7 +251,7 @@ async function writeEvidence(
   name: string,
   input: {
     projectDir: string
-    result?: MinicodeProcessResult
+    result?: PixiuProcessResult
     events: AgentEvent[]
     hits: Hit[]
   },
@@ -262,15 +262,15 @@ async function writeEvidence(
   await writeFile(join(dir, "events.json"), JSON.stringify(input.events, null, 2), "utf8")
   await writeFile(join(dir, "llm-hits.json"), JSON.stringify(redactJson(input.hits), null, 2), "utf8")
   await writeFile(join(dir, "workspace-tree.txt"), (await tree(join(input.projectDir, "workspace"))).join("\n"), "utf8")
-  await writeFile(join(dir, "sessions-tree.txt"), (await tree(join(input.projectDir, ".minicode/state/sessions"))).join("\n"), "utf8")
+  await writeFile(join(dir, "sessions-tree.txt"), (await tree(join(input.projectDir, ".pixiu/state/sessions"))).join("\n"), "utf8")
   await copyTextTree(join(input.projectDir, "workspace"), join(dir, "workspace"))
-  await copyTextTree(join(input.projectDir, ".minicode/state/sessions"), join(dir, "sessions"))
+  await copyTextTree(join(input.projectDir, ".pixiu/state/sessions"), join(dir, "sessions"))
   return dir
 }
 
 async function makeEvidenceDir(name: string) {
   const safe = name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-|-$/g, "") || "scenario"
-  const dir = join(tmpdir(), `minicode-scenario-${safe}-${Date.now()}`)
+  const dir = join(tmpdir(), `pixiu-scenario-${safe}-${Date.now()}`)
   await mkdir(dir, { recursive: true })
   return dir
 }

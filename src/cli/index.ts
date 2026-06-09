@@ -7,9 +7,9 @@ import { createInterface } from "node:readline/promises"
 
 import { buildRuntime, type Runtime, type RuntimeWithoutLLM } from "../runtime/build"
 import { logger } from "../runtime/logger"
-import { formatError, MinicodeError } from "../shared/errors"
+import { formatError, PixiuError } from "../shared/errors"
 import { loadConfig, validateConfig } from "../config/loader"
-import { defaultConfig, type MinicodeConfig } from "../config/defaults"
+import { defaultConfig, type PixiuConfig } from "../config/defaults"
 import { readJsoncFile } from "../shared/json"
 import { SkillHubProvider, installRemoteSkill, planSkillInstall } from "../skillhub/provider"
 import type { SkillInstallPlan, SkillInstallResult } from "../skillhub/types"
@@ -27,12 +27,13 @@ import {
 import { CliTraceRenderer } from "./trace"
 import { createTerminal, displayWidth, divider, oneLine, panel, panelWidthForTerminal, renderMarkdown, stripAnsi, table } from "./terminal"
 import type { AgentEvent } from "../agent/events"
-import { approximateTokens } from "../agent/compaction"
+import { approximateTokens, compactSessionMessages } from "../agent/compaction"
+import { collectSessionEvidence, type SessionEvidence } from "../session/evidence"
 import type { JsonObject } from "../shared/json"
 import type { PermissionDecision, PermissionMode, PermissionRequest } from "../permission/types"
 
 const VERSION = "0.0.0"
-const CHAT_CTRL_C = "__MINICODE_CTRL_C__"
+const CHAT_CTRL_C = "__PIXIU_CTRL_C__"
 
 type ChatInput = {
   isTTY: boolean
@@ -51,60 +52,60 @@ type ChatQuestionOptions = {
   terminal?: ReturnType<typeof createTerminal>
 }
 
-const HELP = `minicode ${VERSION}
+const HELP = `pixiu ${VERSION}
 
 Usage:
-  minicode --help
-  minicode --version
-  minicode doctor [--json]
-  minicode run [options] <message>
-  minicode -p [options] <message>
-  minicode chat [options]
+  pixiu --help
+  pixiu --version
+  pixiu doctor [--json]
+  pixiu run [options] <message>
+  pixiu -p [options] <message>
+  pixiu chat [options]
 
 Agent commands:
-  minicode run [--output-format text|json|stream-json] <message>
-  minicode run [-c|--continue] <message>
-  minicode run [--session <session-id>] <message>
-  minicode run [--permission-mode default|acceptEdits|bypassPermissions|plan] <message>
-  minicode -p [--output-format text|json|stream-json] <message>
-  minicode chat [--permission-mode default|acceptEdits|bypassPermissions|plan]
+  pixiu run [--output-format text|json|stream-json] <message>
+  pixiu run [-c|--continue] <message>
+  pixiu run [--session <session-id>] <message>
+  pixiu run [--permission-mode default|acceptEdits|bypassPermissions|plan] <message>
+  pixiu -p [--output-format text|json|stream-json] <message>
+  pixiu chat [--permission-mode default|acceptEdits|bypassPermissions|plan]
 
 Inspect:
-  minicode tool list
-  minicode session list
-  minicode session resume
-  minicode session show <session-id>
+  pixiu tool list
+  pixiu session list
+  pixiu session resume
+  pixiu session show <session-id>
 
 Config:
-  minicode config validate
-  minicode config show
-  minicode config setup
-  minicode config use <baseURL|alias> <apiKey> [model]
-  minicode config use-env <baseURL|alias> <ENV_VAR> [model]
-  minicode config list
-  minicode config get <key>
-  minicode config set <key> <json-value-or-string>
+  pixiu config validate
+  pixiu config show
+  pixiu config setup
+  pixiu config use <baseURL|alias> <apiKey> [model]
+  pixiu config use-env <baseURL|alias> <ENV_VAR> [model]
+  pixiu config list
+  pixiu config get <key>
+  pixiu config set <key> <json-value-or-string>
 
 Skills:
-  minicode skill init <name> [--description <text>] [--path <skills-dir>] [--yes] [--json]
-  minicode skill list
-  minicode skill show <name>
-  minicode skill search [--remote] <query>
-  minicode skill path list [--json]
-  minicode skill path add <path> [--json]
-  minicode skill path remove <path> [--json]
-  minicode skill doctor [--json]
-  minicode skill install <remote-skill-id> [--yes] [--json]
+  pixiu skill init <name> [--description <text>] [--path <skills-dir>] [--yes] [--json]
+  pixiu skill list
+  pixiu skill show <name>
+  pixiu skill search [--remote] <query>
+  pixiu skill path list [--json]
+  pixiu skill path add <path> [--json]
+  pixiu skill path remove <path> [--json]
+  pixiu skill doctor [--json]
+  pixiu skill install <remote-skill-id> [--yes] [--json]
 
 MCP:
-  minicode mcp add stdio <name> [--timeout-ms <ms>] [--env <K=V>...] [--yes] [--json] -- <command> [args...]
-  minicode mcp add http <name> <url> [--timeout-ms <ms>] [--header <K=V>...] [--yes] [--json]
-  minicode mcp list [--json]
-  minicode mcp test <name> [--json]
-  minicode mcp doctor [--json]
-  minicode mcp enable <name> [--json]
-  minicode mcp disable <name> [--json]
-  minicode mcp remove <name> [--json]
+  pixiu mcp add stdio <name> [--timeout-ms <ms>] [--env <K=V>...] [--yes] [--json] -- <command> [args...]
+  pixiu mcp add http <name> <url> [--timeout-ms <ms>] [--header <K=V>...] [--yes] [--json]
+  pixiu mcp list [--json]
+  pixiu mcp test <name> [--json]
+  pixiu mcp doctor [--json]
+  pixiu mcp enable <name> [--json]
+  pixiu mcp disable <name> [--json]
+  pixiu mcp remove <name> [--json]
 
 Common options:
   -p, --print                 Run once and print the answer.
@@ -117,14 +118,14 @@ Common options:
   --no-color                  Disable ANSI color.
 
 Examples:
-  minicode -p "explain this repo"
-  minicode run --permission-mode acceptEdits "format docs"
-  minicode run --output-format stream-json "summarize recent changes"
-  minicode config use https://api.example.com/v1 sk-... openai-compatible/model
-  minicode config use-env siliconflow MINICODE_API_KEY deepseek-ai/DeepSeek-V3.2
-  minicode config set sandbox.shellTimeoutMs 30000
+  pixiu -p "explain this repo"
+  pixiu run --permission-mode acceptEdits "format docs"
+  pixiu run --output-format stream-json "summarize recent changes"
+  pixiu config use https://api.example.com/v1 sk-... openai-compatible/model
+  pixiu config use-env siliconflow PIXIU_API_KEY deepseek-ai/DeepSeek-V3.2
+  pixiu config set sandbox.shellTimeoutMs 30000
 
-This is a compact agent framework: LLM stream, core tools, permissions, sessions, MCP, skills, and sandbox.
+Pixiu is a local-first self-evolving CLI agent: do the work, learn from the task, and distill reusable Skills.
 `
 
 type CliResult = {
@@ -214,7 +215,7 @@ function takeFlagValues(args: string[], flag: string) {
     if (arg === undefined) continue
     if (arg === flag) {
       const value = args[index + 1]
-      if (value === undefined) throw new MinicodeError(`${flag} requires a value`, { code: "CLI_USAGE" })
+      if (value === undefined) throw new PixiuError(`${flag} requires a value`, { code: "CLI_USAGE" })
       values.push(value)
       index += 1
       continue
@@ -234,7 +235,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function rejectRemovedFlags(args: string[]) {
   if (has(args, "--mock")) {
-    throw new MinicodeError("--mock has been removed. Configure a real provider API key before running the agent.", {
+    throw new PixiuError("--mock has been removed. Configure a real provider API key before running the agent.", {
       code: "CLI_USAGE",
     })
   }
@@ -250,7 +251,7 @@ function permissionModeFromArgs(args: string[]): PermissionMode {
 function parsePermissionMode(value: string | undefined, specified: boolean): PermissionMode | undefined {
   if (!specified) return undefined
   if (value === "default" || value === "acceptEdits" || value === "bypassPermissions" || value === "plan") return value
-  throw new MinicodeError(`Invalid permission mode: ${value ?? ""}`, { code: "CLI_USAGE" })
+  throw new PixiuError(`Invalid permission mode: ${value ?? ""}`, { code: "CLI_USAGE" })
 }
 
 function toJSONL(values: unknown[]) {
@@ -272,11 +273,11 @@ async function doctor(args: string[] = []): Promise<CliResult> {
   const skillDiagnostics = await runtime.skills.diagnostics()
   const mcpStatuses = await inspectMCPServers(config)
   const checks = [
-    ["config", "ok", "minicode.jsonc loaded"],
+    ["config", "ok", "pixiu.jsonc loaded"],
     ["bun", "ok", `bun ${Bun.version}`],
     ["model", "ok", config.model],
     ["provider", providerKeyPresent ? "ok" : "warn", providerDetail],
-    ["sessions", "ok", ".minicode/state/sessions"],
+    ["sessions", "ok", ".pixiu/state/sessions"],
     ["workspace", "ok", `${config.sandbox.mode} (${config.sandbox.workspaceDir})`],
     ["skills", skillDiagnostics.length ? "warn" : "ok", `${runtime.config.skills.paths.length} paths, ${skillDiagnostics.length} diagnostics`],
     ["mcp", mcpStatuses.some((server) => server.status === "failed") ? "warn" : "ok", `${mcpStatuses.length} configured`],
@@ -284,7 +285,7 @@ async function doctor(args: string[] = []): Promise<CliResult> {
   if (json) return { exitCode: 0, output: JSON.stringify({ checks: checks.map(([check, status, detail]) => ({ check, status, detail })) }, null, 2) }
   return {
     exitCode: 0,
-    output: ["minicode doctor", table([["check", "status", "detail"], ...checks], { header: true })].join("\n"),
+    output: ["pixiu doctor", table([["check", "status", "detail"], ...checks], { header: true })].join("\n"),
   }
 }
 
@@ -307,7 +308,7 @@ async function runCommand(args: string[], options: CliOptions = {}): Promise<Cli
   const continueLatest = has(args, "-c", "--continue")
   const resumeSessionId = session.value ?? (continueLatest ? (await latestSessionId(runtime)) : undefined)
   const message = stripFlags(session.args, ["--json", "--yes", "--verbose", "--no-color", "--output-format", "--permission-mode", "-p", "--print", "-c", "--continue"]).join(" ").trim()
-  if (!message) throw new MinicodeError("run requires a message", { code: "CLI_USAGE" })
+  if (!message) throw new PixiuError("run requires a message", { code: "CLI_USAGE" })
 
   const events: AgentEvent[] = []
   let text = ""
@@ -489,12 +490,20 @@ async function chatCommand(args: string[]): Promise<CliResult> {
         else process.stdout.write("\n")
         continue
       }
+      if (command === "/compact") {
+        if (!activeSessionId) {
+          process.stdout.write("No active session to compact yet.\n")
+          continue
+        }
+        process.stdout.write(`${await compactSession(runtime, activeSessionId)}\n`)
+        continue
+      }
       if (command === "/tools") {
         process.stdout.write(`${formatToolList(runtime.tools.list())}\n`)
         continue
       }
       if (command === "/session") {
-        process.stdout.write(`${activeSessionId ? `session: ${activeSessionId}` : "session: new"}\n`)
+        process.stdout.write(`${await formatChatSession(runtime, activeSessionId)}\n`)
         continue
       }
       if (command === "/model") {
@@ -556,6 +565,10 @@ async function chatCommand(args: string[]): Promise<CliResult> {
             activeSessionId = event.sessionId
             stats.sessionId = event.sessionId
           }
+          if (event.type === "context_usage") {
+            stats.inputTokens = event.inputTokens
+            if (event.outputTokens !== undefined) stats.outputTokens = event.outputTokens
+          }
           trace.handle(event)
           if (event.type === "llm_text_delta") {
             output += event.text
@@ -587,7 +600,7 @@ async function chatCommand(args: string[]): Promise<CliResult> {
 }
 
 async function buildChatRuntime(
-  config: MinicodeConfig,
+  config: PixiuConfig,
   permissionMode: PermissionMode,
   askPermission: (request: PermissionRequest, decision: PermissionDecision) => Promise<PermissionDecision>,
 ) {
@@ -606,7 +619,7 @@ function hasRuntimeLLM(runtime: Runtime | RuntimeWithoutLLM): runtime is Runtime
   return Boolean(runtime.runner)
 }
 
-function hasConfiguredProviderKey(config: MinicodeConfig) {
+function hasConfiguredProviderKey(config: PixiuConfig) {
   const provider = config.providers["openai-compatible"]
   return Boolean(provider?.apiKey || (provider?.apiKeyEnv ? process.env[provider.apiKeyEnv] : undefined))
 }
@@ -1046,6 +1059,101 @@ function chatHelp() {
   return formatChatHelp(CHAT_COMMANDS)
 }
 
+async function compactSession(runtime: Runtime | RuntimeWithoutLLM, sessionId: string) {
+  const session = await runtime.sessions.getSession(sessionId)
+  if (!session) return `Unknown session: ${sessionId}`
+  const messages = await runtime.sessions.readMessages(sessionId)
+  if (messages.length <= runtime.config.compaction.keepRecentMessages) {
+    return `Session ${shortSession(sessionId)} has ${messages.length} messages; nothing to compact yet.`
+  }
+  const compacted = compactSessionMessages(messages, runtime.config.compaction, session.summary)
+  const metadata = {
+    ...(session.metadata ?? {}),
+    compaction: {
+      compactedAt: new Date().toISOString(),
+      compactedMessages: compacted.compactedCount,
+      keptMessages: compacted.messages.length,
+      recentApproxTokens: compacted.recentApproxTokens,
+    },
+  }
+  await runtime.sessions.updateSession(sessionId, { summary: compacted.summary, metadata })
+  return [
+    `Compacted session ${shortSession(sessionId)}.`,
+    `compacted messages: ${compacted.compactedCount}`,
+    `kept recent messages: ${compacted.messages.length}`,
+    `summary: ${formatTokenCount(approximateTokens(compacted.summary))} approx tokens`,
+  ].join("\n")
+}
+
+async function formatChatSession(runtime: Runtime | RuntimeWithoutLLM, activeSessionId: string | undefined) {
+  if (!activeSessionId) {
+    return [
+      "session: new",
+      `cwd: ${runtime.cwd}`,
+      `workspace: ${runtime.config.sandbox.workspaceDir}`,
+      "messages: 0",
+      "summary: none",
+    ].join("\n")
+  }
+
+  const session = await runtime.sessions.getSession(activeSessionId)
+  if (!session) return `Unknown session: ${activeSessionId}`
+  const messages = await runtime.sessions.readMessages(activeSessionId)
+  const evidence = collectSessionEvidence(messages)
+  const compact = asRecord(session.metadata?.compaction)
+  const lines = [
+    `session: ${session.id}`,
+    `cwd: ${session.cwd}`,
+    `workspace: ${stringValue(session.metadata?.workspaceDir) ?? runtime.config.sandbox.workspaceDir}`,
+    `messages: ${messages.length}`,
+    `summary: ${session.summary ? `${formatTokenCount(approximateTokens(session.summary))} approx tokens` : "none"}`,
+  ]
+
+  if (compact) {
+    lines.push(
+      `compact: ${stringValue(compact.compactedAt) ?? "yes"} (${numberValue(compact.compactedMessages) ?? 0} compacted, ${numberValue(compact.keptMessages) ?? 0} kept)`,
+    )
+  }
+
+  lines.push("", ...formatEvidenceSection(evidence))
+  return lines.join("\n")
+}
+
+function formatEvidenceSection(evidence: SessionEvidence) {
+  return [
+    "artifacts:",
+    ...(evidence.artifacts.length ? evidence.artifacts.slice(-5).map((item) => `- ${item.path} (${item.tool})`) : ["- none"]),
+    "sources:",
+    ...(evidence.sources.length ? evidence.sources.slice(-5).map((item) => `- ${formatSourceEvidence(item)}`) : ["- none"]),
+    "recent shell:",
+    ...(evidence.shellCommands.length ? evidence.shellCommands.slice(-5).map((item) => `- ${formatShellEvidence(item)}`) : ["- none"]),
+  ]
+}
+
+function formatSourceEvidence(item: SessionEvidence["sources"][number]) {
+  const accessedAt = item.accessedAt ? ` @ ${item.accessedAt}` : ""
+  if (item.query) return `web_search "${oneLine(item.query, 80)}"${item.url ? ` -> ${item.url}` : ""}${accessedAt}`
+  const label = item.title ? `${item.title} ` : ""
+  return `${item.tool} ${label}${item.url ?? "(unknown url)"}${accessedAt}`
+}
+
+function formatShellEvidence(item: SessionEvidence["shellCommands"][number]) {
+  const exit = item.exitCode === undefined ? "?" : String(item.exitCode)
+  return `[${exit}] ${oneLine(item.command, 120)}`
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value ? value : undefined
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
 function renderChatUserMessage(message: string, terminal: ReturnType<typeof createTerminal>, alreadyEchoed = false) {
   if (alreadyEchoed) return "\n"
   const text = message.trimEnd()
@@ -1061,7 +1169,7 @@ function createChatRunStatus(terminal: ReturnType<typeof createTerminal>, stats:
   const tips = [
     "Use /paste for multiline input.",
     "Ctrl-C cancels the current run.",
-    "Use minicode -c to continue the latest session.",
+    "Use pixiu -c to continue the latest session.",
   ]
   let printed = false
   let visible = false
@@ -1079,7 +1187,7 @@ function createChatRunStatus(terminal: ReturnType<typeof createTerminal>, stats:
     if (done || paused) return
     if (!process.stdout.isTTY) return
     printed = true
-    const line = `${terminal.blue(frames[frame % frames.length] ?? "✺")} ${mode}… (${formatDurationShort(Date.now() - startedAt)} · ${detail} · ↑ ${formatTokenCount(stats.inputTokens)} tokens · esc to interrupt)`
+    const line = `${terminal.blue(frames[frame % frames.length] ?? "✺")} ${mode}… (${formatDurationShort(Date.now() - startedAt)} · ${detail} · ↑ ${formatTokenCount(stats.inputTokens)} ↓ ${formatTokenCount(stats.outputTokens)} tokens · esc to interrupt)`
     frame += 1
     process.stdout.write(`\r\x1b[2K${line}`)
     visible = true
@@ -1096,8 +1204,8 @@ function createChatRunStatus(terminal: ReturnType<typeof createTerminal>, stats:
       }
       if (event.type === "tool_result") {
         mode = "Monitoring"
-        detail = `${event.name} ${event.ok ? "finished" : "failed"}`
-        this.finish()
+        detail = `${event.name} ${event.ok ? "finished; waiting for model" : "failed; waiting for model"}`
+        clearVisibleLine()
       }
       if (event.type === "assistant_progress_delta" || event.type === "llm_text_delta" || event.type === "message" || event.type === "error") this.finish()
     },
@@ -1151,8 +1259,8 @@ function formatChatSummary(options: {
     options.terminal.gray("Usage by model:"),
     `      ${options.terminal.blue(shortModelFromStats(options.stats))}:      ${formatTokenCount(options.stats.inputTokens)} input, ${formatTokenCount(options.stats.outputTokens)} output`,
     "",
-    options.activeSessionId ? `${options.terminal.gray("To resume this session:")} minicode --session ${options.activeSessionId}` : undefined,
-    `${options.terminal.gray("or resume last session:")} minicode -c`,
+    options.activeSessionId ? `${options.terminal.gray("To resume this session:")} pixiu --session ${options.activeSessionId}` : undefined,
+    `${options.terminal.gray("or resume last session:")} pixiu -c`,
   ].filter((line): line is string => line !== undefined)
   return `${lines.join("\n")}\n`
 }
@@ -1375,7 +1483,7 @@ function formatPermissionPromptLines(
     panelLine("", width, target, terminal),
     panelLine("", width, decision.reason, terminal),
     panelLine("", width, "", terminal),
-    panelLine("", width, "Do you want to allow minicode to run this tool?", terminal),
+    panelLine("", width, "Do you want to allow pixiu to run this tool?", terminal),
     panelLine("", width, "Use ↑/↓ then Enter, or press 1/2/3.", terminal),
     panelLine("", width, "", terminal),
     panelLine("", width, option(0, "Yes"), terminal),
@@ -1455,10 +1563,10 @@ async function sessionCommand(args: string[]): Promise<CliResult> {
   }
   if (subcommand === "resume") {
     const latest = await latestSessionId(runtime)
-    if (!latest) throw new MinicodeError("No sessions to resume", { code: "SESSION_NOT_FOUND" })
+    if (!latest) throw new PixiuError("No sessions to resume", { code: "SESSION_NOT_FOUND" })
     return { exitCode: 0, output: latest }
   }
-  throw new MinicodeError("session requires list, resume, or show <session-id>", { code: "CLI_USAGE" })
+  throw new PixiuError("session requires list, resume, or show <session-id>", { code: "CLI_USAGE" })
 }
 
 async function configCommand(args: string[]): Promise<CliResult> {
@@ -1482,24 +1590,24 @@ async function configCommand(args: string[]): Promise<CliResult> {
     return { exitCode: 0, output: formatProviderConfigResult(result) }
   }
   if (subcommand === "setup") {
-    throw new MinicodeError("config setup is interactive. Run it inside chat as `/config setup`.", { code: "CLI_USAGE" })
+    throw new PixiuError("config setup is interactive. Run it inside chat as `/config setup`.", { code: "CLI_USAGE" })
   }
   if (subcommand === "set" && key) {
     const raw = args.slice(2).join(" ")
-    if (!raw) throw new MinicodeError("config set requires a value", { code: "CLI_USAGE" })
+    if (!raw) throw new PixiuError("config set requires a value", { code: "CLI_USAGE" })
     const projectConfig = await readProjectConfig()
     writeConfigPath(projectConfig, key, parseConfigValue(raw))
     await writeProjectConfig(projectConfig)
     return { exitCode: 0, output: `set ${key}` }
   }
-  throw new MinicodeError(
+  throw new PixiuError(
     "config requires show, setup, use <baseURL|alias> <apiKey> [model], use-env <baseURL|alias> <ENV_VAR> [model], validate, list, get <key>, or set <key> <value>",
     { code: "CLI_USAGE" },
   )
 }
 
 async function toolCommand(args: string[]): Promise<CliResult> {
-  if (args[0] !== "list") throw new MinicodeError("tool requires list", { code: "CLI_USAGE" })
+  if (args[0] !== "list") throw new PixiuError("tool requires list", { code: "CLI_USAGE" })
   const runtime = await buildRuntime({ loadLLM: false })
   return { exitCode: 0, output: formatToolList(runtime.tools.list()) }
 }
@@ -1512,7 +1620,7 @@ async function skillCommand(args: string[]): Promise<CliResult> {
     const descriptionFlag = takeFlagValue(rest, "--description")
     const pathFlag = takeFlagValue(descriptionFlag.args, "--path")
     const name = stripFlags(pathFlag.args, ["--yes", "--json"]).join(" ").trim()
-    if (!name) throw new MinicodeError("skill init requires a name", { code: "CLI_USAGE" })
+    if (!name) throw new PixiuError("skill init requires a name", { code: "CLI_USAGE" })
     const result = await initSkill({
       name,
       ...(descriptionFlag.value ? { description: descriptionFlag.value } : {}),
@@ -1578,7 +1686,7 @@ async function skillCommand(args: string[]): Promise<CliResult> {
   }
   if (subcommand === "install") {
     const id = rest.find((arg) => !["--yes", "--json"].includes(arg))
-    if (!id) throw new MinicodeError("skill install requires remote-skill-id", { code: "CLI_USAGE" })
+    if (!id) throw new PixiuError("skill install requires remote-skill-id", { code: "CLI_USAGE" })
     const provider = skillHub(runtime.config)
     const detail = await provider.detail(id)
     const installRoot = runtime.config.skillhub.installDir.startsWith("/")
@@ -1592,7 +1700,7 @@ async function skillCommand(args: string[]): Promise<CliResult> {
     const result = await installRemoteSkill(detail, installRoot)
     return { exitCode: 0, output: json ? JSON.stringify({ installed: result }, null, 2) : formatSkillInstallResult(result) }
   }
-  throw new MinicodeError("skill requires init, list, show, search, path, doctor, or install", { code: "CLI_USAGE" })
+  throw new PixiuError("skill requires init, list, show, search, path, doctor, or install", { code: "CLI_USAGE" })
 }
 
 async function skillPathCommand(subcommand: string | undefined, args: string[]): Promise<CliResult> {
@@ -1604,7 +1712,7 @@ async function skillPathCommand(subcommand: string | undefined, args: string[]):
   }
   if (subcommand === "add") {
     const path = stripFlags(args, ["--json"]).join(" ").trim()
-    if (!path) throw new MinicodeError("skill path add requires a path", { code: "CLI_USAGE" })
+    if (!path) throw new PixiuError("skill path add requires a path", { code: "CLI_USAGE" })
     const config = await readProjectConfig()
     const paths = projectSkillPaths(config)
     const changed = !paths.includes(path)
@@ -1617,7 +1725,7 @@ async function skillPathCommand(subcommand: string | undefined, args: string[]):
   }
   if (subcommand === "remove") {
     const path = stripFlags(args, ["--json"]).join(" ").trim()
-    if (!path) throw new MinicodeError("skill path remove requires a path", { code: "CLI_USAGE" })
+    if (!path) throw new PixiuError("skill path remove requires a path", { code: "CLI_USAGE" })
     const config = await readProjectConfig()
     const paths = projectSkillPaths(config)
     const next = paths.filter((item) => item !== path)
@@ -1628,24 +1736,24 @@ async function skillPathCommand(subcommand: string | undefined, args: string[]):
     if (json) return { exitCode: 0, output: JSON.stringify(result, null, 2) }
     return { exitCode: 0, output: changed ? `removed skill path ${path}` : `skill path not present ${path}` }
   }
-  throw new MinicodeError("skill path requires list, add, or remove", { code: "CLI_USAGE" })
+  throw new PixiuError("skill path requires list, add, or remove", { code: "CLI_USAGE" })
 }
 
 async function initSkill(options: {
   name: string
   description?: string
   skillsDir?: string
-  config: MinicodeConfig
+  config: PixiuConfig
   cwd: string
   yes: boolean
 }) {
   const name = safeSkillName(options.name)
-  const skillsDir = options.skillsDir ?? options.config.skillhub.installDir ?? options.config.skills.paths[0] ?? ".minicode/skills"
+  const skillsDir = options.skillsDir ?? options.config.skillhub.installDir ?? options.config.skills.paths[0] ?? ".pixiu/skills"
   const root = skillsDir.startsWith("/") ? skillsDir : resolve(options.cwd, skillsDir)
   const targetDir = join(root, name)
   const skillPath = join(targetDir, "SKILL.md")
   if (!options.yes && (await exists(skillPath))) {
-    throw new MinicodeError(`Skill already exists: ${skillPath}. Re-run with --yes to overwrite.`, { code: "SKILL_EXISTS" })
+    throw new PixiuError(`Skill already exists: ${skillPath}. Re-run with --yes to overwrite.`, { code: "SKILL_EXISTS" })
   }
   await mkdir(targetDir, { recursive: true })
   const description = options.description ?? `Use this skill for ${name} workflows.`
@@ -1659,7 +1767,7 @@ async function initSkill(options: {
 
 function safeSkillName(name: string) {
   const safe = name.trim().replace(/[^A-Za-z0-9_.-]/g, "-").replace(/^-+|-+$/g, "")
-  if (!safe) throw new MinicodeError(`Invalid skill name: ${name}`, { code: "SKILL_INVALID_NAME" })
+  if (!safe) throw new PixiuError(`Invalid skill name: ${name}`, { code: "SKILL_INVALID_NAME" })
   return safe
 }
 
@@ -1673,15 +1781,15 @@ async function exists(path: string) {
 }
 
 async function readProjectConfig() {
-  const configPath = resolve(process.cwd(), "minicode.jsonc")
+  const configPath = resolve(process.cwd(), "pixiu.jsonc")
   if (!(await exists(configPath))) return {}
   const config = await readJsoncFile<Record<string, unknown>>(configPath)
-  if (!isRecord(config)) throw new MinicodeError("minicode.jsonc must contain an object", { code: "CONFIG_INVALID" })
+  if (!isRecord(config)) throw new PixiuError("pixiu.jsonc must contain an object", { code: "CONFIG_INVALID" })
   return config
 }
 
 async function writeProjectConfig(config: Record<string, unknown>) {
-  const configPath = resolve(process.cwd(), "minicode.jsonc")
+  const configPath = resolve(process.cwd(), "pixiu.jsonc")
   await mkdir(dirname(configPath), { recursive: true })
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8")
 }
@@ -1689,7 +1797,7 @@ async function writeProjectConfig(config: Record<string, unknown>) {
 async function configureProviderFromArgs(args: string[], credential: "apiKey" | "apiKeyEnv"): Promise<ProviderConfigResult> {
   const [endpoint, credentialValue, model] = args
   if (!endpoint || !credentialValue) {
-    throw new MinicodeError(
+    throw new PixiuError(
       credential === "apiKey"
         ? "config use requires <baseURL|alias> <apiKey> [model]"
         : "config use-env requires <baseURL|alias> <ENV_VAR> [model]",
@@ -1715,10 +1823,10 @@ async function configureProviderInteractively(input: ChatInput): Promise<Provide
   const model = modelAnswer?.trim() || defaultModel
   const modeAnswer = await input.question("Credential mode [key/env]: ")
   const credential: "apiKey" | "apiKeyEnv" = /^env$/i.test(modeAnswer?.trim() ?? "") ? "apiKeyEnv" : "apiKey"
-  const prompt = credential === "apiKey" ? "API key: " : "API key env var [MINICODE_API_KEY]: "
+  const prompt = credential === "apiKey" ? "API key: " : "API key env var [PIXIU_API_KEY]: "
   const credentialAnswer = await input.question(prompt)
-  const credentialValue = credentialAnswer?.trim() || (credential === "apiKeyEnv" ? "MINICODE_API_KEY" : "")
-  if (!credentialValue) throw new MinicodeError("API key is required", { code: "CLI_USAGE" })
+  const credentialValue = credentialAnswer?.trim() || (credential === "apiKeyEnv" ? "PIXIU_API_KEY" : "")
+  if (!credentialValue) throw new PixiuError("API key is required", { code: "CLI_USAGE" })
   return await saveProviderConfig({ endpoint, credential, credentialValue, model })
 }
 
@@ -1767,7 +1875,7 @@ function normalizeProviderEndpoint(value: string) {
   return endpoint.replace(/\/+$/, "")
 }
 
-function formatProviderConfig(config: MinicodeConfig) {
+function formatProviderConfig(config: PixiuConfig) {
   const provider = config.providers["openai-compatible"]
   const credential = provider?.apiKey ? "apiKey configured" : provider?.apiKeyEnv ? `env ${provider.apiKeyEnv}` : "not configured"
   return [
@@ -1779,7 +1887,7 @@ function formatProviderConfig(config: MinicodeConfig) {
     "Quick setup:",
     "  /config setup",
     "  /config use siliconflow <api-key> deepseek-ai/DeepSeek-V3.2",
-    "  /config use-env siliconflow MINICODE_API_KEY deepseek-ai/DeepSeek-V3.2",
+    "  /config use-env siliconflow PIXIU_API_KEY deepseek-ai/DeepSeek-V3.2",
   ].join("\n")
 }
 
@@ -1817,7 +1925,7 @@ function setProjectSkillPaths(config: Record<string, unknown>, paths: string[]) 
 
 function projectMCPServers(config: Record<string, unknown>) {
   if (config.mcp === undefined) return {}
-  if (!isRecord(config.mcp)) throw new MinicodeError("minicode.jsonc mcp must contain an object", { code: "CONFIG_INVALID" })
+  if (!isRecord(config.mcp)) throw new PixiuError("pixiu.jsonc mcp must contain an object", { code: "CONFIG_INVALID" })
   return { ...config.mcp }
 }
 
@@ -1856,7 +1964,7 @@ function formatSkillInstallResult(result: SkillInstallResult) {
   ].join("\n")
 }
 
-function skillHub(config: MinicodeConfig) {
+function skillHub(config: PixiuConfig) {
   const apiKey = config.skillhub.apiKeyEnv ? process.env[config.skillhub.apiKeyEnv] : undefined
   return new SkillHubProvider({ baseURL: config.skillhub.baseURL, ...(apiKey ? { apiKey } : {}) })
 }
@@ -1865,7 +1973,7 @@ function parseOutputFormat(value: string | undefined, legacyJson: boolean): Outp
   if (legacyJson && value === undefined) return "jsonl-legacy"
   if (value === undefined) return "text"
   if (value === "text" || value === "json" || value === "stream-json") return value
-  throw new MinicodeError(`Invalid output format: ${value}`, { code: "CLI_USAGE" })
+  throw new PixiuError(`Invalid output format: ${value}`, { code: "CLI_USAGE" })
 }
 
 function streamInitEvent(
@@ -1896,6 +2004,8 @@ function toStreamJsonEvent(event: AgentEvent, sessionId: string | undefined) {
   switch (event.type) {
     case "session_created":
       return { ...base, type: "system", subtype: "session", session_id: event.sessionId, uuid: event.sessionId }
+    case "context_usage":
+      return undefined
     case "assistant_progress_delta":
       return {
         ...base,
@@ -1993,14 +2103,16 @@ async function renderChatBanner(
   const rightWidth = panelWidth - dividerColumn - 5
   const art = [
     "",
-    terminal.white("          ████        ████"),
-    terminal.white("          ████████████████"),
-    terminal.white("        ████            ████"),
-    terminal.white("        ████  ██    ██  ████"),
-    terminal.white("        ████  ██    ██  ████"),
-    terminal.white("        ████            ████"),
-    terminal.white("          ████████████████"),
     "",
+    terminal.white("       ██            ██"),
+    terminal.white("     ██  ██        ██  ██"),
+    terminal.white("      ██  ██████████  ██"),
+    terminal.white("    ████              ████"),
+    terminal.white("  ██    ██          ██    ██"),
+    terminal.white("  ██    ██    ██    ██    ██"),
+    terminal.white("  ██          ████        ██"),
+    terminal.white("    ██      ██  ██      ██"),
+    terminal.white("      ██████    ██████"),
   ]
   const rows: string[][] = [
     [art[0] ?? "", terminal.blue(terminal.bold("Tips for getting started"))],
@@ -2012,13 +2124,13 @@ async function renderChatBanner(
     [art[6] ?? "", recent[0] ?? "No recent activity in this cwd"],
     [art[7] ?? "", recent[1] ?? (recentEmpty ? terminal.gray("Run from a project folder to see its sessions.") : "")],
     [art[8] ?? "", recent[2] ?? ""],
-    ["", divider(rightWidth, terminal)],
-    ["", `${terminal.blue(shortModel(runtime.config.model))} · permission ${permissionMode}`],
-    ["", activeSessionId ? `${terminal.gray("session")} ${shortSession(activeSessionId)}` : `${terminal.gray("session")} new`],
-    ["", `${terminal.gray("cwd")} ${runtime.cwd}`],
-    ["", `${terminal.gray("workspace")} ${runtime.config.sandbox.workspaceDir}`],
+    [art[9] ?? "", divider(rightWidth, terminal)],
+    [art[10] ?? "", `${terminal.blue(shortModel(runtime.config.model))} · permission ${permissionMode}`],
+    [art[11] ?? "", activeSessionId ? `${terminal.gray("session")} ${shortSession(activeSessionId)}` : `${terminal.gray("session")} new`],
+    [art[12] ?? "", `${terminal.gray("cwd")} ${runtime.cwd}`],
+    [art[13] ?? "", `${terminal.gray("workspace")} ${runtime.config.sandbox.workspaceDir}`],
   ]
-  return panel(`minicode v${VERSION}`, rows, { terminal, width, dividerColumn })
+  return panel(`pixiu v${VERSION}`, rows, { terminal, width, dividerColumn })
 }
 
 function formatToolList(tools: Array<{ name: string; description: string }>) {
@@ -2073,7 +2185,7 @@ function readConfigPath(config: unknown, path: string) {
 
 function writeConfigPath(config: Record<string, unknown>, path: string, value: unknown) {
   const parts = path.split(".").filter(Boolean)
-  if (!parts.length) throw new MinicodeError("config path is required", { code: "CLI_USAGE" })
+  if (!parts.length) throw new PixiuError("config path is required", { code: "CLI_USAGE" })
   let current: Record<string, unknown> = config
   for (const part of parts.slice(0, -1)) {
     const next = current[part]
@@ -2113,30 +2225,30 @@ async function mcpCommand(args: string[]): Promise<CliResult> {
   if (subcommand === "test") {
     const json = has(rest, "--json")
     const name = stripFlags(rest, ["--json"]).join(" ").trim()
-    if (!name) throw new MinicodeError("mcp test requires a name", { code: "CLI_USAGE" })
+    if (!name) throw new PixiuError("mcp test requires a name", { code: "CLI_USAGE" })
     const server = config.mcp[name]
-    if (!server) throw new MinicodeError(`Unknown MCP server: ${name}`, { code: "MCP_NOT_FOUND" })
-    if (server.enabled === false) throw new MinicodeError(`MCP server is disabled: ${name}`, { code: "MCP_DISABLED" })
+    if (!server) throw new PixiuError(`Unknown MCP server: ${name}`, { code: "MCP_NOT_FOUND" })
+    if (server.enabled === false) throw new PixiuError(`MCP server is disabled: ${name}`, { code: "MCP_DISABLED" })
     const client = createMCPClient(server)
     const tools = await mcpToolsToDefinitions(name, client)
     if ("close" in client) await client.close?.()
     if (json) return { exitCode: 0, output: JSON.stringify({ name, tools }, null, 2) }
     return { exitCode: 0, output: tools.map((tool) => `${tool.name}\t${tool.description}`).join("\n") }
   }
-  throw new MinicodeError("mcp requires add, list, test, doctor, enable, disable, or remove", { code: "CLI_USAGE" })
+  throw new PixiuError("mcp requires add, list, test, doctor, enable, disable, or remove", { code: "CLI_USAGE" })
 }
 
 async function mcpAddCommand(args: string[]): Promise<CliResult> {
   const [transport, ...rest] = args
   if (transport === "stdio") return mcpAddStdioCommand(rest)
   if (transport === "http") return mcpAddHttpCommand(rest)
-  throw new MinicodeError("mcp add requires stdio or http", { code: "CLI_USAGE" })
+  throw new PixiuError("mcp add requires stdio or http", { code: "CLI_USAGE" })
 }
 
 async function mcpAddStdioCommand(args: string[]): Promise<CliResult> {
   const separator = args.indexOf("--")
   if (separator === -1) {
-    throw new MinicodeError("mcp add stdio requires -- before the server command", { code: "CLI_USAGE" })
+    throw new PixiuError("mcp add stdio requires -- before the server command", { code: "CLI_USAGE" })
   }
   const optionArgs = args.slice(0, separator)
   const commandArgs = args.slice(separator + 1)
@@ -2146,11 +2258,11 @@ async function mcpAddStdioCommand(args: string[]): Promise<CliResult> {
   const timeoutFlag = takeMCPTimeout(envFlag.args)
   const nameArgs = stripFlags(timeoutFlag.args, ["--json", "--yes"])
   const name = nameArgs.join(" ").trim()
-  if (!name) throw new MinicodeError("mcp add stdio requires a name", { code: "CLI_USAGE" })
+  if (!name) throw new PixiuError("mcp add stdio requires a name", { code: "CLI_USAGE" })
   if (commandArgs.length === 0 || !commandArgs[0]) {
-    throw new MinicodeError("mcp add stdio requires a command after --", { code: "CLI_USAGE" })
+    throw new PixiuError("mcp add stdio requires a command after --", { code: "CLI_USAGE" })
   }
-  const server: MinicodeConfig["mcp"][string] = {
+  const server: PixiuConfig["mcp"][string] = {
     transport: "stdio",
     command: commandArgs[0],
     ...(commandArgs.length > 1 ? { args: commandArgs.slice(1) } : {}),
@@ -2168,10 +2280,10 @@ async function mcpAddHttpCommand(args: string[]): Promise<CliResult> {
   const positional = stripFlags(timeoutFlag.args, ["--json", "--yes"])
   const [rawName, rawUrl, ...extra] = positional
   if (!rawName || !rawUrl || extra.length > 0) {
-    throw new MinicodeError("mcp add http requires <name> <url>", { code: "CLI_USAGE" })
+    throw new PixiuError("mcp add http requires <name> <url>", { code: "CLI_USAGE" })
   }
   assertHTTPURL(rawUrl)
-  const server: MinicodeConfig["mcp"][string] = {
+  const server: PixiuConfig["mcp"][string] = {
     transport: "http",
     url: rawUrl,
     ...parseOptionalPairs(headerFlag.values, "header", /^[A-Za-z0-9-]+$/),
@@ -2182,7 +2294,7 @@ async function mcpAddHttpCommand(args: string[]): Promise<CliResult> {
 
 async function writeMCPServer(options: {
   name: string
-  server: MinicodeConfig["mcp"][string]
+  server: PixiuConfig["mcp"][string]
   yes: boolean
   json: boolean
 }): Promise<CliResult> {
@@ -2191,7 +2303,7 @@ async function writeMCPServer(options: {
   const servers = projectMCPServers(config)
   const existed = servers[name] !== undefined
   if (existed && !options.yes) {
-    throw new MinicodeError(`MCP server already exists: ${name}. Re-run with --yes to overwrite.`, { code: "MCP_EXISTS" })
+    throw new PixiuError(`MCP server already exists: ${name}. Re-run with --yes to overwrite.`, { code: "MCP_EXISTS" })
   }
   servers[name] = options.server
   setProjectMCPServers(config, servers)
@@ -2206,7 +2318,7 @@ async function mcpRemoveCommand(args: string[]): Promise<CliResult> {
   const name = safeMCPName(stripFlags(args, ["--json"]).join(" ").trim())
   const config = await readProjectConfig()
   const servers = projectMCPServers(config)
-  if (servers[name] === undefined) throw new MinicodeError(`Unknown MCP server: ${name}`, { code: "MCP_NOT_FOUND" })
+  if (servers[name] === undefined) throw new PixiuError(`Unknown MCP server: ${name}`, { code: "MCP_NOT_FOUND" })
   delete servers[name]
   setProjectMCPServers(config, servers)
   await writeProjectConfig(config)
@@ -2221,7 +2333,7 @@ async function mcpSetEnabledCommand(args: string[], enabled: boolean): Promise<C
   const config = await readProjectConfig()
   const servers = projectMCPServers(config)
   const server = servers[name]
-  if (!isRecord(server)) throw new MinicodeError(`Unknown MCP server: ${name}`, { code: "MCP_NOT_FOUND" })
+  if (!isRecord(server)) throw new PixiuError(`Unknown MCP server: ${name}`, { code: "MCP_NOT_FOUND" })
   const next = { ...server }
   if (enabled) delete next.enabled
   else next.enabled = false
@@ -2264,7 +2376,7 @@ function takeMCPTimeout(args: string[]) {
   if (raw === undefined) return { value: undefined as number | undefined, args: short.args }
   const value = Number(raw)
   if (!Number.isInteger(value) || value <= 0) {
-    throw new MinicodeError(`Invalid MCP timeout: ${raw}`, { code: "CLI_USAGE" })
+    throw new PixiuError(`Invalid MCP timeout: ${raw}`, { code: "CLI_USAGE" })
   }
   return { value, args: short.args }
 }
@@ -2277,7 +2389,7 @@ function parseOptionalPairs(values: string[], label: "env" | "header", keyPatter
     const key = equals === -1 ? value : value.slice(0, equals)
     const pairValue = equals === -1 ? "" : value.slice(equals + 1)
     if (!key || !keyPattern.test(key)) {
-      throw new MinicodeError(`Invalid MCP ${label} pair: ${value}`, { code: "CLI_USAGE" })
+      throw new PixiuError(`Invalid MCP ${label} pair: ${value}`, { code: "CLI_USAGE" })
     }
     parsed[key] = pairValue
   }
@@ -2286,9 +2398,9 @@ function parseOptionalPairs(values: string[], label: "env" | "header", keyPatter
 
 function safeMCPName(name: string) {
   const value = name.trim()
-  if (!value) throw new MinicodeError("MCP server name is required", { code: "CLI_USAGE" })
+  if (!value) throw new PixiuError("MCP server name is required", { code: "CLI_USAGE" })
   if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
-    throw new MinicodeError(`Invalid MCP server name: ${name}`, { code: "MCP_INVALID_NAME" })
+    throw new PixiuError(`Invalid MCP server name: ${name}`, { code: "MCP_INVALID_NAME" })
   }
   return value
 }
@@ -2298,7 +2410,7 @@ function assertHTTPURL(value: string, label = "MCP HTTP URL") {
     const url = new URL(value)
     if (!["http:", "https:"].includes(url.protocol)) throw new Error("unsupported protocol")
   } catch {
-    throw new MinicodeError(`Invalid ${label}: ${value}`, { code: "CLI_USAGE" })
+    throw new PixiuError(`Invalid ${label}: ${value}`, { code: "CLI_USAGE" })
   }
 }
 
@@ -2328,7 +2440,7 @@ export async function runCli(argv = process.argv.slice(2), options: CliOptions =
       case "mcp":
         return await mcpCommand(args)
       default:
-        throw new MinicodeError(`Unknown command: ${command ?? ""}`, { code: "CLI_USAGE" })
+        throw new PixiuError(`Unknown command: ${command ?? ""}`, { code: "CLI_USAGE" })
     }
   } catch (error) {
     return { exitCode: 1, error: formatCliError(error) }
@@ -2349,17 +2461,17 @@ function onlyChatOptions(argv: string[]) {
 }
 
 function formatCliError(error: unknown) {
-  if (error instanceof MinicodeError && error.code === "PROVIDER_API_KEY_MISSING") {
+  if (error instanceof PixiuError && error.code === "PROVIDER_API_KEY_MISSING") {
     return [
       "provider: missing API key",
       "",
       error.message,
       "",
       "Next steps:",
-      "- Run `minicode config use <baseURL|alias> <apiKey> [model]` for plug-and-play setup.",
-      "- Or run `minicode config use-env <baseURL|alias> <ENV_VAR> [model]` to keep the key in your shell.",
+      "- Run `pixiu config use <baseURL|alias> <apiKey> [model]` for plug-and-play setup.",
+      "- Or run `pixiu config use-env <baseURL|alias> <ENV_VAR> [model]` to keep the key in your shell.",
       "- Inside chat, run `/config setup` for an interactive setup flow.",
-      "- Validate configuration with `minicode config validate`.",
+      "- Validate configuration with `pixiu config validate`.",
     ].join("\n")
   }
   return formatError(error)

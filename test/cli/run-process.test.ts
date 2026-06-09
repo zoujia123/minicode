@@ -3,11 +3,11 @@ import { access, readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import type { AgentEvent } from "../../src/agent/events"
-import { expectExit, parseJsonEvents, withMinicodeFixture } from "../harness/minicode-process"
+import { expectExit, parseJsonEvents, withPixiuFixture } from "../harness/pixiu-process"
 
-describe("minicode run subprocess", () => {
+describe("pixiu run subprocess", () => {
   test("prints a successful final response", async () => {
-    await withMinicodeFixture(async ({ llm, run }) => {
+    await withPixiuFixture(async ({ llm, run }) => {
       llm.text("FINAL: hello from fake llm")
 
       const result = await run("say hi")
@@ -20,7 +20,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("does not leak reasoning or completion protocol markers in text output", async () => {
-    await withMinicodeFixture(async ({ llm, run }) => {
+    await withPixiuFixture(async ({ llm, run }) => {
       llm.text("FINAL: visible answer", { reasoning: "hidden chain of thought" })
 
       const result = await run("say hi")
@@ -33,7 +33,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("keeps markdown answers readable in text output", async () => {
-    await withMinicodeFixture(async ({ llm, run }) => {
+    await withPixiuFixture(async ({ llm, run }) => {
       llm.text("FINAL: # Summary\n\n- first\n- second\n\n```ts\nconst ok = true\n```")
 
       const result = await run("markdown please")
@@ -47,7 +47,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("prints friendly tool traces in non-json mode", async () => {
-    await withMinicodeFixture(async ({ llm, run }) => {
+    await withPixiuFixture(async ({ llm, run }) => {
       llm.tool("write", { path: "trace.md", content: "trace ok" })
       llm.text("FINAL: wrote trace.md")
 
@@ -63,21 +63,22 @@ describe("minicode run subprocess", () => {
   })
 
   test("emits parseable JSONL events", async () => {
-    await withMinicodeFixture(async ({ llm, run }) => {
+    await withPixiuFixture(async ({ llm, run }) => {
       llm.text("FINAL: json ok")
 
       const result = await run("say hi as json", { json: true })
 
       expectExit(result, 0)
       const events = parseJsonEvents(result.stdout)
-      expect(events.map((event) => event.type)).toEqual(["session_created", "llm_text_delta", "message", "finish"])
+      expect(events.map((event) => event.type)).toEqual(["session_created", "context_usage", "llm_text_delta", "message", "finish"])
+      expect(events.find((event) => event.type === "context_usage")).toMatchObject({ source: "estimated" })
       expect(events.find((event) => event.type === "message")).toMatchObject({ content: "json ok" })
       expect(result.stderr).toBe("")
     })
   })
 
   test("supports CodeBuddy-style stream-json output", async () => {
-    await withMinicodeFixture(async ({ llm, exec }) => {
+    await withPixiuFixture(async ({ llm, exec }) => {
       llm.tool("write", { path: "hello.txt", content: "hello stream" })
       llm.text("FINAL: stream ok")
 
@@ -97,7 +98,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("permission-mode bypassPermissions is accepted in stream-json output", async () => {
-    await withMinicodeFixture(async ({ llm, exec }) => {
+    await withPixiuFixture(async ({ llm, exec }) => {
       llm.tool("write", { path: "mode.txt", content: "mode ok" })
       llm.text("FINAL: mode ok")
 
@@ -112,7 +113,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("permission-mode acceptEdits allows writes without --yes", async () => {
-    await withMinicodeFixture(async ({ llm, projectDir, exec }) => {
+    await withPixiuFixture(async ({ llm, projectDir, exec }) => {
       llm.tool("write", { path: "accepted.md", content: "accepted" })
       llm.text("FINAL: accepted")
 
@@ -127,7 +128,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("permission-mode plan denies write tools", async () => {
-    await withMinicodeFixture(async ({ llm, projectDir, exec }) => {
+    await withPixiuFixture(async ({ llm, projectDir, exec }) => {
       llm.tool("write", { path: "plan.md", content: "should not write" })
       llm.text("FINAL: planned only")
 
@@ -150,7 +151,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("-p aliases non-interactive text output", async () => {
-    await withMinicodeFixture(async ({ llm, exec }) => {
+    await withPixiuFixture(async ({ llm, exec }) => {
       llm.text("FINAL: print ok")
 
       const result = await exec(["-p", "say hi"])
@@ -162,7 +163,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("output-format json returns an event array and result summary", async () => {
-    await withMinicodeFixture(async ({ llm, exec }) => {
+    await withPixiuFixture(async ({ llm, exec }) => {
       llm.text("FINAL: json array ok")
 
       const result = await exec(["run", "--output-format", "json", "say hi"])
@@ -175,7 +176,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("writes files inside the session workspace", async () => {
-    await withMinicodeFixture(async ({ llm, projectDir, run }) => {
+    await withPixiuFixture(async ({ llm, projectDir, run }) => {
       llm.tool("write", { path: "hello.md", content: "workspace ok" }, { splitArgs: true })
       llm.text("FINAL: wrote hello.md")
 
@@ -194,7 +195,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("resumes with the prior session workspace", async () => {
-    await withMinicodeFixture(async ({ llm, run }) => {
+    await withPixiuFixture(async ({ llm, run }) => {
       llm.tool("write", { path: "hello.md", content: "workspace ok" })
       llm.text("FINAL: wrote hello.md")
       const first = await run("write hello.md", { json: true, yes: true })
@@ -217,7 +218,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("--continue resumes the most recent session", async () => {
-    await withMinicodeFixture(async ({ llm, exec, run }) => {
+    await withPixiuFixture(async ({ llm, exec, run }) => {
       llm.tool("write", { path: "latest.md", content: "latest workspace" })
       llm.text("FINAL: wrote latest")
       const first = await run("write latest.md", { json: true, yes: true })
@@ -236,7 +237,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("session resume prints the latest session id", async () => {
-    await withMinicodeFixture(async ({ llm, exec, run }) => {
+    await withPixiuFixture(async ({ llm, exec, run }) => {
       llm.text("FINAL: session created")
       const first = await run("create a session", { json: true })
       expectExit(first, 0)
@@ -249,7 +250,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("surfaces provider errors without hanging", async () => {
-    await withMinicodeFixture(async ({ llm, run }) => {
+    await withPixiuFixture(async ({ llm, run }) => {
       llm.error(401, { error: "bad key" })
 
       const result = await run("trigger provider error", { json: true, timeoutMs: 3_000 })
@@ -262,7 +263,7 @@ describe("minicode run subprocess", () => {
   })
 
   test("max steps exits with a script-visible status", async () => {
-    await withMinicodeFixture(async ({ llm, exec }) => {
+    await withPixiuFixture(async ({ llm, exec }) => {
       for (let index = 0; index < 10; index += 1) llm.tool("todo", { items: [`step ${index}`] })
 
       const result = await exec(["run", "--output-format", "json", "loop until max steps"])

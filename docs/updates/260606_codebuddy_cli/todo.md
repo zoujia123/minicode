@@ -2,7 +2,7 @@
 
 ## Goal
 
-Evolve minicode's CLI from a bare agent runner into a polished coding-assistant terminal experience inspired by CodeBuddy Code.
+Evolve pixiu's CLI from a bare agent runner into a polished coding-assistant terminal experience inspired by CodeBuddy Code.
 
 The goal is not to copy CodeBuddy's brand or every product feature. The goal is to borrow the parts that make the CLI feel legible, trustworthy, and pleasant:
 
@@ -16,7 +16,7 @@ The goal is not to copy CodeBuddy's brand or every product feature. The goal is 
 
 ## Initial Judgment
 
-This is a reasonable direction. minicode already has the hard inner loop: config, sessions, LLM streaming, tools, permissions, sandbox, MCP, and skills. The ugly part is mostly the CLI surface.
+This is a reasonable direction. pixiu already has the hard inner loop: config, sessions, LLM streaming, tools, permissions, sandbox, MCP, and skills. The ugly part is mostly the CLI surface.
 
 Implementation difficulty:
 
@@ -25,7 +25,7 @@ Implementation difficulty:
 - Medium for permission UX, because current permissions are non-interactive and mostly hidden in tool metadata.
 - Hard only if we try to clone CodeBuddy's full TUI/Web UI/daemon/worktree/swarm feature set. Those should stay out of the first slice.
 
-Recommended approach: make minicode feel product-grade in the terminal first, without making the core larger than necessary.
+Recommended approach: make pixiu feel product-grade in the terminal first, without making the core larger than necessary.
 
 ## CodeBuddy Behaviors Worth Borrowing
 
@@ -36,7 +36,7 @@ Recommended approach: make minicode feel product-grade in the terminal first, wi
   - [x] Show recent activity or "No recent activity".
   - [x] Show provider/model, permission mode, cwd, and session/workspace path.
   - [x] Keep this optional or only for interactive `chat`, so `run` remains script-friendly.
-  - [x] Consider showing a local Web UI placeholder/link only if minicode later grows `serve` (deferred until minicode has a real `serve` command).
+  - [x] Consider showing a local Web UI placeholder/link only if pixiu later grows `serve` (deferred until pixiu has a real `serve` command).
 - [x] Prompt styling
   - [x] Use a visible prompt marker like `>`.
   - [x] Echo user input in a compact highlighted style in interactive mode.
@@ -70,13 +70,13 @@ Recommended approach: make minicode feel product-grade in the terminal first, wi
 - [x] Better diagnostics
   - [x] Make missing provider API key a friendly auth/provider panel.
   - [x] Show which env var is expected.
-  - [x] Suggest `minicode config validate` and a minimal provider config example.
+  - [x] Suggest `pixiu config validate` and a minimal provider config example.
   - [x] Add `doctor` checks for Bun, provider key presence, config validity, workspace writability, MCP status, and skills path status.
-  - [x] Add a Node availability check if Node becomes a supported runtime requirement (not required now; minicode is Bun-first and has a Bun doctor check).
+  - [x] Add a Node availability check if Node becomes a supported runtime requirement (not required now; pixiu is Bun-first and has a Bun doctor check).
 - [x] Permission UX
   - [x] Surface permission mode at startup.
   - [x] Surface permission mode immediately before risky actions.
-  - [x] Add `--permission-mode default|acceptEdits|bypassPermissions|plan` or a smaller minicode-native equivalent.
+  - [x] Add `--permission-mode default|acceptEdits|bypassPermissions|plan` or a smaller pixiu-native equivalent.
   - [x] Keep `--yes` as an alias for bypassing `ask` rules in non-interactive runs.
   - [x] In interactive `chat`, support a real ask/approve prompt for high-risk tools.
   - [x] Show why a tool was denied using the existing permission metadata.
@@ -122,7 +122,7 @@ Recommended approach: make minicode feel product-grade in the terminal first, wi
 
 ## Second Slice: Interactive Chat Upgrade
 
-- [x] Startup panel for `minicode chat`
+- [x] Startup panel for `pixiu chat`
   - [x] Version.
   - [x] Provider/model.
   - [x] Permission mode.
@@ -158,7 +158,7 @@ Recommended approach: make minicode feel product-grade in the terminal first, wi
 
 ## Third Slice: Doctor, Config, and Help Polish
 
-- [x] Improve `minicode --help`
+- [x] Improve `pixiu --help`
   - [x] Group commands by purpose.
   - [x] Include common examples.
   - [x] Mention `-p`, `--output-format`, `--yes`, and `--session`.
@@ -184,19 +184,19 @@ Recommended approach: make minicode feel product-grade in the terminal first, wi
 ## Fourth Slice: CodeBuddy-Like Features To Defer
 
 - [x] Web UI (deferred)
-  - CodeBuddy exposes a local Web UI. minicode can defer this until the terminal flow is good.
+  - CodeBuddy exposes a local Web UI. pixiu can defer this until the terminal flow is good.
 - [x] Daemon/background sessions (deferred)
   - Useful, but not needed for the first CLI polish pass.
 - [x] Worktree mode (deferred)
   - Useful for coding agents, but should come after interactive permissions and session UX.
 - [x] Sub-agents/team mode (deferred)
-  - minicode's core should stay small until single-agent UX feels solid.
+  - pixiu's core should stay small until single-agent UX feels solid.
 - [x] Full terminal TUI framework (deferred)
   - Avoid pulling in a heavy TUI dependency until simple ANSI/readline improvements hit their limit.
 
 ## Compatibility Requirements
 
-- [x] Do not break current `minicode run "message"` usage.
+- [x] Do not break current `pixiu run "message"` usage.
 - [x] Do not break `--json`; keep it as an alias or compatibility mode.
 - [x] Do not make tests or default commands call real providers.
 - [x] Keep machine-readable output free of decorative UI.
@@ -218,15 +218,15 @@ PATH=.tools/bun/bin:$PATH bun run src/cli/index.ts mcp list
 Optional live checks:
 
 ```bash
-MINICODE_API_KEY=... PATH=.tools/bun/bin:$PATH bun run src/cli/index.ts -p "hello"
-MINICODE_API_KEY=... PATH=.tools/bun/bin:$PATH bun run src/cli/index.ts chat
+PIXIU_API_KEY=... PATH=.tools/bun/bin:$PATH bun run src/cli/index.ts -p "hello"
+PIXIU_API_KEY=... PATH=.tools/bun/bin:$PATH bun run src/cli/index.ts chat
 ```
 
 Latest verification:
 
 - `PATH=.tools/bun/bin:$PATH bun run typecheck`
 - `PATH=.tools/bun/bin:$PATH bun test` (112 pass, 0 fail)
-- Real provider `-p` smoke using `docs/keys/api_key.jsonl` key injected through `MINICODE_API_KEY`
+- Real provider `-p` smoke using `docs/keys/api_key.jsonl` key injected through `PIXIU_API_KEY`
 - Real provider `--output-format stream-json` smoke using the same env injection
 - Real provider `--permission-mode plan --output-format stream-json` smoke using the same env injection, confirmed permission denial result and exit code `3`
 - Real provider `chat --no-color` startup smoke using the same env injection, confirmed banner and Ctrl-C first-warning / second-exit behavior with process SIGINT
@@ -236,21 +236,21 @@ Latest verification:
 - Real provider parser smoke for a continuation response ending in `FINAL:`, confirmed `stream-json` final `result` does not leak the completion marker.
 - Real CodeBuddy `--help`, `-p --output-format text`, `-p --output-format stream-json`, and interactive startup trust-panel probes with `bash -ic`
 - Fresh local CodeBuddy probe on 2026-06-06:
-  - `bash -ic 'cd /home/gujing/code/minicode && codebuddy --version'` -> `2.103.1`
+  - `bash -ic 'cd /home/gujing/code/pixiu && codebuddy --version'` -> `2.103.1`
   - `codebuddy -p --output-format text ...` returns only concise final Markdown text, without a startup panel.
   - `codebuddy -p --output-format stream-json ...` begins with `system/init`, includes session/cwd/tools/model/permission/slash command metadata, and ends with a `result` event containing duration, turns, usage, and permission denials.
 - Local smoke for `--help`, `doctor`, `tool list`, `skill list`, and `mcp list`
 - Narrow regression checks after the latest MCP/stream-json changes:
   - `PATH=.tools/bun/bin:$PATH bun test test/cli/mcp.test.ts test/cli/run-process.test.ts`
 
-Latest minicode implementation notes:
+Latest pixiu implementation notes:
 
-- Core-first decision: Web UI, daemon/background sessions, worktree mode, sub-agent/team mode, and a full TUI framework remain explicitly deferred. They are useful CodeBuddy-style capabilities, but adding them now would distract from minicode's compact agent core.
+- Core-first decision: Web UI, daemon/background sessions, worktree mode, sub-agent/team mode, and a full TUI framework remain explicitly deferred. They are useful CodeBuddy-style capabilities, but adding them now would distract from pixiu's compact agent core.
 - `--permission-mode default|acceptEdits|bypassPermissions|plan` is now supported for `run`, `-p`, and `chat`. `--yes` remains a compatibility alias for `bypassPermissions`.
 - `acceptEdits` auto-approves `write`, `edit`, and `patch` ask rules while preserving normal shell rules. `plan` allows read/planning tools and denies write/execute tools.
 - Run exit codes now distinguish clean success (`0`), pre-run CLI/config/provider setup errors (`1`), provider/runtime run errors (`2`), permission denials (`3`), and max-step stops (`4`).
 - `doctor --json` is available for scripts.
-- `minicode --help` is grouped by Agent commands, Inspect, Config, Skills, MCP, common options, and examples.
+- `pixiu --help` is grouped by Agent commands, Inspect, Config, Skills, MCP, common options, and examples.
 - Chat slash commands now include `/clear`; `/mcp` and `/skills` render table-style output.
 - Chat now supports `/paste` multiline input, blank input skip, prompt history where readline is available, and compact user-message echo before each agent run.
 - Chat startup now shows a compact `mini code` identity block, shortcut hint, Ctrl-D guidance, and recent activity. Ctrl-C once warns or cancels an active run; Ctrl-C again exits from the prompt.
@@ -288,7 +288,7 @@ Observed `-p --output-format text` behavior:
 
 - Prints only the final assistant answer.
 - No startup panel, no tool event log, no JSON envelope.
-- Good model for minicode's `-p` / script-friendly text mode.
+- Good model for pixiu's `-p` / script-friendly text mode.
 
 Observed `-p --output-format json` behavior:
 

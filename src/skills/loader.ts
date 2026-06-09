@@ -2,7 +2,7 @@ import { access, readFile, stat } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { homedir } from "node:os"
 
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 import { isInside } from "../sandbox/path"
 import type { LoadedSkill, SkillDiagnostic, SkillDuplicate, SkillFile, SkillSource, SkillSummary } from "./types"
 
@@ -64,7 +64,7 @@ function parseMetadata(content: string, skillPath: string) {
       ?.trim()
   const name = metadata.name ?? heading
   if (!name || !description) {
-    throw new MinicodeError(`Skill ${skillPath} must include name and description`, { code: "SKILL_INVALID" })
+    throw new PixiuError(`Skill ${skillPath} must include name and description`, { code: "SKILL_INVALID" })
   }
   return { name: name.trim(), description: description.trim() }
 }
@@ -192,11 +192,11 @@ export class SkillLoader {
     const skill = await this.find(skillName)
     const normalized = relativePath.trim()
     if (!normalized || normalized.includes("\0") || isAbsolute(normalized)) {
-      throw new MinicodeError(`Skill path must be a relative file path: ${relativePath}`, { code: "SKILL_PATH_INVALID" })
+      throw new PixiuError(`Skill path must be a relative file path: ${relativePath}`, { code: "SKILL_PATH_INVALID" })
     }
     const path = resolve(skill.rootDir, normalized)
     if (!isInside(skill.rootDir, path)) {
-      throw new MinicodeError(`Skill path escapes root: ${relativePath}`, { code: "SKILL_PATH_ESCAPE" })
+      throw new PixiuError(`Skill path escapes root: ${relativePath}`, { code: "SKILL_PATH_ESCAPE" })
     }
     return readFile(path, "utf8")
   }
@@ -205,7 +205,7 @@ export class SkillLoader {
     const skills = await this.list()
     const skill = skills.find((item) => item.name === name)
     if (!skill) {
-      throw new MinicodeError(`Skill not found: ${name}. Available: ${skills.map((item) => item.name).join(", ")}`, {
+      throw new PixiuError(`Skill not found: ${name}. Available: ${skills.map((item) => item.name).join(", ")}`, {
         code: "SKILL_NOT_FOUND",
       })
     }

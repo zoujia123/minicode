@@ -1,6 +1,6 @@
 process.stdin.setEncoding("utf8")
 
-const mode = process.env.MINICODE_FAKE_MCP_MODE ?? "echo"
+const mode = process.env.PIXIU_FAKE_MCP_MODE ?? "echo"
 
 if (mode === "stderr-exit") {
   process.stderr.write("fake mcp boom stderr\n")

@@ -17,7 +17,7 @@ describe("session stores", () => {
   })
 
   test("jsonl store resumes after process boundary", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-session-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-session-"))
     const first = new JsonlSessionStore(root)
     const session = await first.create({ cwd: process.cwd(), title: "resume" })
     await first.appendMessage({ sessionId: session.id, role: "assistant", parts: [{ type: "text", text: "ok" }] })
@@ -27,7 +27,7 @@ describe("session stores", () => {
   })
 
   test("jsonl store reports corrupt lines with file and line", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-session-bad-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-session-bad-"))
     await writeFile(join(root, "bad.jsonl"), "{\"type\":\"session\"\n", "utf8")
     const store = new JsonlSessionStore(root)
 

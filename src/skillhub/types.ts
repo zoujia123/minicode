@@ -20,7 +20,7 @@ export type SkillInstallFilePlan = {
 
 export type SkillInstallManifest = {
   schemaVersion: 1
-  installer: "minicode"
+  installer: "pixiu"
   installedAt: string
   remote: RemoteSkillSummary
   targetDir: string

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "minicode",
+      "name": "pixiu",
       "devDependencies": {
         "@types/bun": "^1.3.3",
         "typescript": "^5.8.2",

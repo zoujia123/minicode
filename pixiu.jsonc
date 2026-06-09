@@ -1,16 +1,27 @@
 {
-  "$schema": "./schema/minicode.schema.json",
-  "model": "openai-compatible/example-model",
+  "$schema": "./schema/pixiu.schema.json",
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
   "providers": {
     "openai-compatible": {
-      "baseURL": "https://api.example.com/v1",
-      "apiKeyEnv": "MINICODE_OPENAI_COMPATIBLE_API_KEY"
+      "baseURL": "https://api.siliconflow.cn/v1",
+      "type": "openai-compatible",
+      "apiKey": "sk-yayshjcwlttywmjqeudokdsfxbieqijgvlrnzirxayqluqrs"
     }
   },
   "agents": {
     "default": {
       "description": "Default coding and research agent.",
-      "tools": ["read", "grep", "glob", "shell", "write", "edit", "patch", "todo", "skill"],
+      "tools": [
+        "read",
+        "grep",
+        "glob",
+        "shell",
+        "write",
+        "edit",
+        "patch",
+        "todo",
+        "skill"
+      ],
       "maxSteps": 20
     }
   },
@@ -23,12 +34,17 @@
     "write": "ask"
   },
   "skills": {
-    "paths": [".minicode/skills", ".opencode/skills", "~/.claude/skills", "~/.agents/skills"]
+    "paths": [
+      ".pixiu/skills",
+      ".opencode/skills",
+      "~/.claude/skills",
+      "~/.agents/skills"
+    ]
   },
   "skillhub": {
     "baseURL": "https://www.skillhub.club",
     "apiKeyEnv": "SKILLHUB_API_KEY",
-    "installDir": ".minicode/skills"
+    "installDir": ".pixiu/skills"
   },
   "ui": {
     "accentColor": "#3B8EEA"
@@ -40,7 +56,15 @@
     "workspaceOnly": true,
     "shellTimeoutMs": 30000,
     "outputMaxBytes": 20000,
-    "envAllowlist": ["PATH", "HOME", "USER", "LANG", "LC_ALL", "SHELL", "TMPDIR"]
+    "envAllowlist": [
+      "PATH",
+      "HOME",
+      "USER",
+      "LANG",
+      "LC_ALL",
+      "SHELL",
+      "TMPDIR"
+    ]
   },
   "compaction": {
     "maxApproxTokens": 64000,

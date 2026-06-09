@@ -1,6 +1,6 @@
 import type { MCPClient } from "./types"
 import type { JSONSchema } from "../llm/types"
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 import type { ToolDefinition } from "../tools/types"
 
 export async function mcpToolsToDefinitions(prefix: string, client: MCPClient): Promise<ToolDefinition[]> {
@@ -10,7 +10,7 @@ export async function mcpToolsToDefinitions(prefix: string, client: MCPClient): 
     const name = mcpToolDefinitionName(prefix, tool.name)
     const prior = names.get(name)
     if (prior) {
-      throw new MinicodeError(`Duplicate MCP tool name after sanitization: ${name} (${prior}, ${tool.name})`, { code: "MCP_TOOL_DUPLICATE" })
+      throw new PixiuError(`Duplicate MCP tool name after sanitization: ${name} (${prior}, ${tool.name})`, { code: "MCP_TOOL_DUPLICATE" })
     }
     names.set(name, tool.name)
     return {

@@ -2,14 +2,14 @@
 
 ## Goal
 
-Make local Skills a dependable instruction layer for minicode. Skills should be easy to discover, safe to load, diagnosable when malformed, and useful to the agent without bloating the core tool set.
+Make local Skills a dependable instruction layer for pixiu. Skills should be easy to discover, safe to load, diagnosable when malformed, and useful to the agent without bloating the core tool set.
 
 ## References
 
 - opencode `packages/opencode/src/skill/index.ts`: multi-source discovery, frontmatter validation, duplicate handling, available skill list.
 - opencode `packages/opencode/src/tool/skill.ts`: skill tool returns the instruction body with base directory context and nearby files.
-- minicode `src/skills/*`: current minimal loader and `skill` tool.
-- minicode harness: real CLI subprocess and fake LLM scenarios should verify agent-facing behavior.
+- pixiu `src/skills/*`: current minimal loader and `skill` tool.
+- pixiu harness: real CLI subprocess and fake LLM scenarios should verify agent-facing behavior.
 
 ## First Slice: Local Skills Industrial Baseline
 
@@ -30,9 +30,9 @@ Make local Skills a dependable instruction layer for minicode. Skills should be 
   - [x] Main result tells the agent which reference files can be loaded next.
   - [x] Tool metadata includes source and file-list context for trace/debug evidence.
 - [x] Improve CLI ergonomics
-  - [x] `minicode skill search <query>` searches installed local skills.
-  - [x] `minicode skill search --remote <query>` keeps SkillHub search explicit.
-  - [x] `minicode skill list --json` exposes diagnostics for invalid/duplicate skills.
+  - [x] `pixiu skill search <query>` searches installed local skills.
+  - [x] `pixiu skill search --remote <query>` keeps SkillHub search explicit.
+  - [x] `pixiu skill list --json` exposes diagnostics for invalid/duplicate skills.
 - [x] Add tests
   - [x] Loader tests for metadata parsing, source metadata, file list, local search, duplicates, invalid skills, and path safety.
   - [x] Tool tests for main skill loading and reference-file loading.
@@ -51,8 +51,8 @@ Make local Skills a dependable instruction layer for minicode. Skills should be 
   - [x] Record installed file bytes and SHA-256 digest.
   - [x] Return manifest path and manifest data from `installRemoteSkill`.
 - [x] Improve CLI/tool output
-  - [x] `minicode skill install <id>` prints a reviewable plan and requires `--yes`.
-  - [x] `minicode skill install <id> --yes` prints target directory, manifest path, and installed files.
+  - [x] `pixiu skill install <id>` prints a reviewable plan and requires `--yes`.
+  - [x] `pixiu skill install <id> --yes` prints target directory, manifest path, and installed files.
   - [x] `skillhub_install` tool reports the same manifest metadata.
 - [x] Add tests
   - [x] Provider tests for manifest/provenance output.

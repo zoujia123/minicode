@@ -8,7 +8,7 @@ export type ProviderConfig = {
   model?: string
 }
 
-export type MinicodeConfig = {
+export type PixiuConfig = {
   model: string
   providers: Record<string, ProviderConfig>
   agents: Record<
@@ -74,13 +74,15 @@ export const defaultConfig = {
       description: "Default coding and research agent.",
       systemPrompt:
         [
-          "You are minicode, a small local agent. Use the core tools to inspect files, modify files, and execute commands in the workspace.",
-          "For live data, domain-specific APIs, or one-off automation, create a temporary script under .minicode/tmp or run a short shell command, inspect the result, and then write the requested artifact.",
-          "Use local skills when a relevant skill is already available or the user asks for one. Do not search or install remote skills unless the user explicitly asks.",
+          "You are Pixiu, a local-first self-evolving CLI agent. Help the user do real work in the current workspace, learn from each task, and turn repeated experience into reusable local skills when the user asks or the pattern is clearly durable.",
+          "Use the core tools to inspect files, modify files, and execute commands in the workspace.",
+          "For live data, current research, or specific URLs, prefer the generic web_search and web_fetch tools and record sources in the final artifact.",
+          "For domain-specific APIs or one-off automation, create a temporary script under .pixiu/tmp or run a short shell command, inspect the result, and then write the requested artifact.",
+          "Use local skills when a relevant skill is already available. Do not create durable skills, search remote skills, or install remote skills unless the user explicitly asks or approves.",
           "When a task asks for future or dated information, choose a data source and command that returns data for that exact date instead of a current-only summary.",
           "Do not pretend to have live data. Record the source URLs, commands, and access time when a task depends on external information.",
         ].join(" "),
-      tools: ["read", "grep", "glob", "shell", "write", "edit", "patch", "todo", "skill"],
+      tools: ["read", "grep", "glob", "web_search", "web_fetch", "shell", "write", "edit", "patch", "todo", "skill"],
       maxSteps: 20,
     },
   },
@@ -89,16 +91,18 @@ export const defaultConfig = {
     grep: "allow",
     glob: "allow",
     shell: "ask",
+    web_search: "ask",
+    web_fetch: "ask",
     edit: "ask",
     write: "ask",
   },
   skills: {
-    paths: [".minicode/skills", ".opencode/skills", "~/.claude/skills", "~/.agents/skills"],
+    paths: [".pixiu/skills", ".opencode/skills", "~/.claude/skills", "~/.agents/skills"],
   },
   skillhub: {
     baseURL: "https://www.skillhub.club",
     apiKeyEnv: "SKILLHUB_API_KEY",
-    installDir: ".minicode/skills",
+    installDir: ".pixiu/skills",
   },
   ui: {
     accentColor: "#3B8EEA",
@@ -116,4 +120,4 @@ export const defaultConfig = {
     maxApproxTokens: 64_000,
     keepRecentMessages: 12,
   },
-} satisfies MinicodeConfig
+} satisfies PixiuConfig

@@ -1,4 +1,4 @@
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 import type { JsonObject, JsonValue } from "../shared/json"
 import type { JSONSchema } from "../llm/types"
 
@@ -12,7 +12,7 @@ export function validateToolInput(schema: JSONSchema, input: JsonObject, name: s
   if (schema.type === "object") {
     for (const field of schema.required ?? []) {
       if (!(field in input)) {
-        throw new MinicodeError(`Tool ${name} is missing required field: ${field}`, {
+        throw new PixiuError(`Tool ${name} is missing required field: ${field}`, {
           code: "TOOL_INPUT_INVALID",
         })
       }
@@ -21,7 +21,7 @@ export function validateToolInput(schema: JSONSchema, input: JsonObject, name: s
       const value = input[field]
       if (value === undefined) continue
       if (fieldSchema.type && typeOf(value) !== fieldSchema.type) {
-        throw new MinicodeError(`Tool ${name} field ${field} must be ${fieldSchema.type}, got ${typeOf(value)}`, {
+        throw new PixiuError(`Tool ${name} field ${field} must be ${fieldSchema.type}, got ${typeOf(value)}`, {
           code: "TOOL_INPUT_INVALID",
         })
       }
@@ -34,7 +34,7 @@ export function stringField(input: JsonObject, key: string, fallback?: string) {
   const value = input[key]
   if (typeof value === "string") return value
   if (fallback !== undefined) return fallback
-  throw new MinicodeError(`Expected string field: ${key}`, { code: "TOOL_INPUT_INVALID" })
+  throw new PixiuError(`Expected string field: ${key}`, { code: "TOOL_INPUT_INVALID" })
 }
 
 export function numberField(input: JsonObject, key: string, fallback: number) {

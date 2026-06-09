@@ -48,7 +48,7 @@ describe("CliTraceRenderer", () => {
           name: "shell",
           input: {
             command:
-              "MINICODE_API_KEY=sk-1234567890abcdef curl 'https://api.example.test/weather?api_key=very-secret'",
+              "PIXIU_API_KEY=sk-1234567890abcdef curl 'https://api.example.test/weather?api_key=very-secret'",
           },
         },
         {
@@ -63,7 +63,7 @@ describe("CliTraceRenderer", () => {
       [0, 50],
     )
 
-    expect(output).toContain("MINICODE_API_KEY=[redacted]")
+    expect(output).toContain("PIXIU_API_KEY=[redacted]")
     expect(output).toContain("api_key=[redacted]")
     expect(output).toContain("sk-[redacted]")
     expect(output).toContain("  fail exit=1 50 ms")

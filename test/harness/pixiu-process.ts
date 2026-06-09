@@ -11,7 +11,7 @@ const BUN_BIN = process.execPath
 
 type SpawnSignal = Parameters<ReturnType<typeof Bun.spawn>["kill"]>[0]
 
-export type MinicodeProcessResult = {
+export type PixiuProcessResult = {
   args: string[]
   stdout: string
   stderr: string
@@ -20,54 +20,54 @@ export type MinicodeProcessResult = {
   durationMs: number
 }
 
-export type MinicodeSpawnHandle = {
+export type PixiuSpawnHandle = {
   args: string[]
   stdout: Promise<string>
   stderr: Promise<string>
   exited: Promise<number>
   kill(signal?: SpawnSignal): void
-  close(): Promise<MinicodeProcessResult>
-  result(): Promise<MinicodeProcessResult>
+  close(): Promise<PixiuProcessResult>
+  result(): Promise<PixiuProcessResult>
 }
 
-export type MinicodeSpawnOptions = {
+export type PixiuSpawnOptions = {
   cwd?: string
   env?: Record<string, string | undefined>
   timeoutMs?: number
   input?: string
 }
 
-export type MinicodeRunOptions = MinicodeSpawnOptions & {
+export type PixiuRunOptions = PixiuSpawnOptions & {
   json?: boolean
   yes?: boolean
   sessionId?: string
 }
 
-export type MinicodeFixture = {
+export type PixiuFixture = {
   rootDir: string
   homeDir: string
   projectDir: string
   llm: FakeLLMServer
-  run(message: string, options?: MinicodeRunOptions): Promise<MinicodeProcessResult>
-  exec(args: string[], options?: MinicodeSpawnOptions): Promise<MinicodeProcessResult>
-  spawn(args: string[], options?: MinicodeSpawnOptions): MinicodeSpawnHandle
+  run(message: string, options?: PixiuRunOptions): Promise<PixiuProcessResult>
+  exec(args: string[], options?: PixiuSpawnOptions): Promise<PixiuProcessResult>
+  spawn(args: string[], options?: PixiuSpawnOptions): PixiuSpawnHandle
 }
 
-export async function withMinicodeFixture<T>(fn: (fixture: MinicodeFixture) => Promise<T>): Promise<T> {
-  const rootDir = await mkdtemp(join(tmpdir(), "minicode-harness-"))
+export async function withPixiuFixture<T>(fn: (fixture: PixiuFixture) => Promise<T>): Promise<T> {
+  const rootDir = await mkdtemp(join(tmpdir(), "pixiu-harness-"))
   const homeDir = join(rootDir, "home")
   const projectDir = join(rootDir, "project")
   const tmpDir = join(rootDir, "tmp")
   const llm = await createFakeLLMServer()
-  const handles = new Set<MinicodeSpawnHandle>()
+  const handles = new Set<PixiuSpawnHandle>()
 
   await mkdir(homeDir, { recursive: true })
   await mkdir(projectDir, { recursive: true })
   await mkdir(tmpDir, { recursive: true })
-  await mkdir(join(projectDir, ".minicode/skills"), { recursive: true })
+  await mkdir(join(projectDir, ".pixiu/skills"), { recursive: true })
   await writeTestConfig(projectDir, llm.url)
 
-  const fixture: MinicodeFixture = {
+  const fixture: PixiuFixture = {
     rootDir,
     homeDir,
     projectDir,
@@ -125,7 +125,7 @@ export function parseJsonEvents<T = AgentEvent>(stdout: string): T[] {
     })
 }
 
-export function expectExit(result: MinicodeProcessResult, expected: number, label = result.args.join(" ")) {
+export function expectExit(result: PixiuProcessResult, expected: number, label = result.args.join(" ")) {
   if (result.timedOut) {
     throw new Error(`${label} timed out after ${result.durationMs}ms\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
   }
@@ -139,14 +139,14 @@ export function expectExit(result: MinicodeProcessResult, expected: number, labe
 async function runProcess(
   args: string[],
   options: { cwd: string; env: Record<string, string>; timeoutMs?: number; input?: string },
-): Promise<MinicodeProcessResult> {
+): Promise<PixiuProcessResult> {
   return createSpawnHandle(args, options).result()
 }
 
 function createSpawnHandle(
   args: string[],
   options: { cwd: string; env: Record<string, string>; timeoutMs?: number; input?: string },
-): MinicodeSpawnHandle {
+): PixiuSpawnHandle {
   const startedAt = Date.now()
   const child = Bun.spawn({
     cmd: [BUN_BIN, "run", CLI_ENTRY, ...args],
@@ -179,7 +179,7 @@ function createSpawnHandle(
     kill()
   }, options.timeoutMs ?? 10_000)
 
-  const result = (async (): Promise<MinicodeProcessResult> => {
+  const result = (async (): Promise<PixiuProcessResult> => {
     let exitCode = await child.exited
     completed = true
     if (timedOut) exitCode = -1
@@ -221,13 +221,13 @@ function testEnv(options: { rootDir: string; homeDir: string; tmpDir: string; ex
     XDG_STATE_HOME: join(options.homeDir, ".local/state"),
     XDG_CACHE_HOME: join(options.homeDir, ".cache"),
     TMPDIR: options.tmpDir,
-    USER: "minicode-test",
+    USER: "pixiu-test",
     LANG: "C.UTF-8",
     LC_ALL: "C.UTF-8",
     SHELL: process.env.SHELL ?? "/bin/sh",
-    MINICODE_TEST_API_KEY: "test-key",
-    MINICODE_TEST_SKILLHUB_KEY: "test-skillhub-key",
-    MINICODE_TEST_ROOT: options.rootDir,
+    PIXIU_TEST_API_KEY: "test-key",
+    PIXIU_TEST_SKILLHUB_KEY: "test-skillhub-key",
+    PIXIU_TEST_ROOT: options.rootDir,
   }
 
   for (const [key, value] of Object.entries(options.extra ?? {})) {
@@ -244,13 +244,13 @@ async function writeTestConfig(projectDir: string, baseURL: string) {
       "openai-compatible": {
         type: "openai-compatible",
         baseURL,
-        apiKeyEnv: "MINICODE_TEST_API_KEY",
+        apiKeyEnv: "PIXIU_TEST_API_KEY",
       },
     },
     agents: {
       default: {
         description: "Default test agent.",
-        systemPrompt: "You are minicode under test. Follow the completion protocol exactly.",
+        systemPrompt: "You are pixiu under test. Follow the completion protocol exactly.",
         tools: ["read", "grep", "glob", "shell", "write", "edit", "patch", "todo", "skill"],
         maxSteps: 8,
       },
@@ -265,12 +265,12 @@ async function writeTestConfig(projectDir: string, baseURL: string) {
       patch: "ask",
     },
     skills: {
-      paths: [".minicode/skills"],
+      paths: [".pixiu/skills"],
     },
     skillhub: {
       baseURL: "http://127.0.0.1/unused",
-      apiKeyEnv: "MINICODE_TEST_SKILLHUB_KEY",
-      installDir: ".minicode/skills",
+      apiKeyEnv: "PIXIU_TEST_SKILLHUB_KEY",
+      installDir: ".pixiu/skills",
     },
     mcp: {},
     sandbox: {
@@ -286,5 +286,5 @@ async function writeTestConfig(projectDir: string, baseURL: string) {
       keepRecentMessages: 12,
     },
   }
-  await writeFile(join(projectDir, "minicode.jsonc"), `${JSON.stringify(config, null, 2)}\n`, "utf8")
+  await writeFile(join(projectDir, "pixiu.jsonc"), `${JSON.stringify(config, null, 2)}\n`, "utf8")
 }

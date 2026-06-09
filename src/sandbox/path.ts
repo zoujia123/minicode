@@ -1,6 +1,6 @@
 import { relative, resolve } from "node:path"
 
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 
 export type PathGuardOptions = {
   workspaceRoot: string
@@ -29,7 +29,7 @@ export class PathGuard {
     const absolutePath = resolve(this.workspaceRoot, path)
     const outsideWorkspace = !isInside(this.workspaceRoot, absolutePath)
     if (outsideWorkspace && this.options.workspaceOnly && !options.allowOutside) {
-      throw new MinicodeError(`Path escapes workspace: ${path}`, { code: "PATH_OUTSIDE_WORKSPACE" })
+      throw new PixiuError(`Path escapes workspace: ${path}`, { code: "PATH_OUTSIDE_WORKSPACE" })
     }
     return {
       absolutePath,

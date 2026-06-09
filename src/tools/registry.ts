@@ -1,4 +1,4 @@
-import { MinicodeError, formatError } from "../shared/errors"
+import { PixiuError, formatError } from "../shared/errors"
 import type { JsonObject } from "../shared/json"
 import { classifyShellCommand } from "../sandbox/shell"
 import { validateToolInput } from "./schema"
@@ -8,7 +8,7 @@ export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>()
 
   register(tool: ToolDefinition) {
-    if (this.tools.has(tool.name)) throw new MinicodeError(`Duplicate tool: ${tool.name}`, { code: "TOOL_DUPLICATE" })
+    if (this.tools.has(tool.name)) throw new PixiuError(`Duplicate tool: ${tool.name}`, { code: "TOOL_DUPLICATE" })
     this.tools.set(tool.name, tool)
     return this
   }

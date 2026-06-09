@@ -40,6 +40,13 @@ export type LLMStreamInput = {
   temperature?: number
 }
 
+export type LLMUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
+  reasoningTokens?: number
+}
+
 export type LLMStreamEvent =
   | { type: "text_start" }
   | { type: "text_delta"; text: string }
@@ -47,6 +54,7 @@ export type LLMStreamEvent =
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_call"; call: LLMToolCall }
   | { type: "tool_result"; toolCallId: string; result: JsonValue }
+  | { type: "usage"; usage: LLMUsage }
   | { type: "finish"; reason?: string }
   | { type: "error"; error: string; code?: string }
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { runShell } from "./shell"
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 
 export type WorktreeSandbox = {
   path: string
@@ -11,7 +11,7 @@ export type WorktreeSandbox = {
   cleanup(): Promise<void>
 }
 
-export async function createWorktreeSandbox(repo: string, prefix = "minicode") {
+export async function createWorktreeSandbox(repo: string, prefix = "pixiu") {
   const path = await mkdtemp(join(tmpdir(), `${prefix}-worktree-`))
   const branch = `${prefix}/${Date.now().toString(36)}`
   const result = await runShell(`git worktree add -b ${branch} ${JSON.stringify(path)}`, {
@@ -22,7 +22,7 @@ export async function createWorktreeSandbox(repo: string, prefix = "minicode") {
   })
   if (result.exitCode !== 0) {
     await rm(path, { recursive: true, force: true })
-    throw new MinicodeError(`Failed to create worktree sandbox: ${result.stderr || result.stdout}`, {
+    throw new PixiuError(`Failed to create worktree sandbox: ${result.stderr || result.stdout}`, {
       code: "WORKTREE_CREATE_FAILED",
     })
   }

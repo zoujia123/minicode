@@ -1,8 +1,8 @@
 import { createID } from "../shared/id"
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 import type { JsonObject } from "../shared/json"
 import { withSignal } from "../shared/fetch"
-import type { LLMClient, LLMMessage, LLMStreamEvent, LLMStreamInput, LLMToolCall } from "./types"
+import type { LLMClient, LLMMessage, LLMStreamEvent, LLMStreamInput, LLMToolCall, LLMUsage } from "./types"
 
 export type OpenAICompatibleOptions = {
   baseURL: string
@@ -121,6 +121,8 @@ export class OpenAICompatibleClient implements LLMClient {
 
         const choice = chunk.choices?.[0]
         const delta = choice?.delta
+        const usage = parseUsage(chunk.usage)
+        if (usage) yield { type: "usage", usage }
         if (delta?.reasoning_content) {
           yield { type: "reasoning_delta", text: String(delta.reasoning_content) }
         }
@@ -156,4 +158,29 @@ export class OpenAICompatibleClient implements LLMClient {
       }
     }
   }
+}
+
+function parseUsage(value: unknown): LLMUsage | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const item = value as Record<string, unknown>
+  const inputTokens = numberValue(item.prompt_tokens) ?? numberValue(item.input_tokens) ?? numberValue(item.inputTokens)
+  const outputTokens = numberValue(item.completion_tokens) ?? numberValue(item.output_tokens) ?? numberValue(item.outputTokens)
+  const totalTokens = numberValue(item.total_tokens) ?? numberValue(item.totalTokens)
+  const completionDetails = objectValue(item.completion_tokens_details) ?? objectValue(item.outputTokenDetails)
+  const reasoningTokens = numberValue(completionDetails?.reasoning_tokens) ?? numberValue(completionDetails?.reasoningTokens)
+  const usage: LLMUsage = {
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+  }
+  return Object.keys(usage).length ? usage : undefined
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }

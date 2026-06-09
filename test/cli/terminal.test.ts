@@ -28,7 +28,7 @@ describe("terminal chrome", () => {
   test("keeps heavy panel within the safe terminal width", () => {
     const terminal = createTerminal({ noColor: true, width: 120 })
     const output = panel(
-      "minicode v0.0.0",
+      "pixiu v0.0.0",
       [
         ["          ████        ████", "Tips for getting started"],
         ["        ████  ██    ██  ████", "Recent activity"],
@@ -44,9 +44,9 @@ describe("terminal chrome", () => {
 
   test("colors the title without leaking color resets into the border", () => {
     const terminal = createTerminal({ forceColor: true, width: 80, accentColor: "#3B8EEA" })
-    const [top = ""] = panel("minicode v0.0.0", [["", ""]], { terminal }).split("\n")
+    const [top = ""] = panel("pixiu v0.0.0", [["", ""]], { terminal }).split("\n")
 
-    expect(stripAnsi(top)).toMatch(/^┏━━━ minicode v0\.0\.0 .*┓$/)
+    expect(stripAnsi(top)).toMatch(/^┏━━━ pixiu v0\.0\.0 .*┓$/)
     expect(top).toContain("\x1b[38;2;59;142;234m┏━━━")
     expect(top).toContain("\x1b[38;2;59;142;234m━")
   })

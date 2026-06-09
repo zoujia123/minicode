@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a tiny opt-in live-provider smoke path for minicode. This is not an eval platform yet; it is a confidence check that a real provider can follow the agent protocol, call core tools, and produce inspectable task evidence.
+Add a tiny opt-in live-provider smoke path for pixiu. This is not an eval platform yet; it is a confidence check that a real provider can follow the agent protocol, call core tools, and produce inspectable task evidence.
 
 ## First Slice: Opt-In Live Provider Smoke
 
@@ -17,7 +17,7 @@ Add a tiny opt-in live-provider smoke path for minicode. This is not an eval pla
   - [x] Ask the agent to write and then summarize a workspace file.
   - [x] Verify the expected file exists in the session workspace.
 - [x] Add temporary-script or live-data smoke
-  - [x] Ask the agent to use shell or a temporary script under `.minicode/tmp/`.
+  - [x] Ask the agent to use shell or a temporary script under `.pixiu/tmp/`.
   - [x] Verify the final artifact records command/source/access-time evidence.
 - [x] Generate a smoke report
   - [x] Write a Markdown report.
@@ -41,5 +41,5 @@ Add a tiny opt-in live-provider smoke path for minicode. This is not an eval pla
 ```bash
 PATH=.tools/bun/bin:$PATH bun run typecheck
 PATH=.tools/bun/bin:$PATH bun test
-MINICODE_API_KEY=... PATH=.tools/bun/bin:$PATH bun run smoke:live
+PIXIU_API_KEY=... PATH=.tools/bun/bin:$PATH bun run smoke:live
 ```

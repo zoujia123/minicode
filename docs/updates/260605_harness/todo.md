@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a small subprocess harness for minicode so runtime changes can be tested through the same path users run:
+Build a small subprocess harness for pixiu so runtime changes can be tested through the same path users run:
 
 ```text
 argv -> config load -> provider stream -> runner -> tools -> session store -> CLI output
@@ -25,10 +25,10 @@ This is not a benchmark or eval platform yet. It is a regression harness for the
   - [x] Queue deterministic tool calls.
   - [x] Queue HTTP/provider errors.
   - [x] Record request bodies for assertions.
-- [x] Add `test/harness/minicode-process.ts`
+- [x] Add `test/harness/pixiu-process.ts`
   - [x] Create an isolated temp project.
-  - [x] Write `minicode.jsonc` pointing at the fake LLM server.
-  - [x] Spawn the real minicode CLI entry with Bun.
+  - [x] Write `pixiu.jsonc` pointing at the fake LLM server.
+  - [x] Spawn the real pixiu CLI entry with Bun.
   - [x] Capture stdout, stderr, exit code, and duration.
   - [x] Provide `run`, `spawn`, `expectExit`, and `parseJsonEvents` helpers.
 - [x] Add subprocess tests

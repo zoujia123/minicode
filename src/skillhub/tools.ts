@@ -1,10 +1,10 @@
 import { join } from "node:path"
 
-import type { MinicodeConfig } from "../config/defaults"
+import type { PixiuConfig } from "../config/defaults"
 import type { ToolDefinition } from "../tools/types"
 import { SkillHubProvider, installRemoteSkill, planSkillInstall } from "./provider"
 
-export function createSkillHubTools(skillhub: MinicodeConfig["skillhub"], cwd: string): ToolDefinition[] {
+export function createSkillHubTools(skillhub: PixiuConfig["skillhub"], cwd: string): ToolDefinition[] {
   const apiKey = skillhub.apiKeyEnv ? process.env[skillhub.apiKeyEnv] : undefined
   const provider = new SkillHubProvider({ baseURL: skillhub.baseURL, ...(apiKey ? { apiKey } : {}) })
   const installRoot = skillhub.installDir.startsWith("/") ? skillhub.installDir : join(cwd, skillhub.installDir)

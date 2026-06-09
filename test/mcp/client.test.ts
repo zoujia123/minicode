@@ -46,7 +46,7 @@ describe("MCP client", () => {
     const client = new StdioMCPClient({
       command: process.execPath,
       args: [join(import.meta.dir, "..", "fixtures", "fake-mcp.ts")],
-      env: { MINICODE_FAKE_MCP_MODE: "hang" },
+      env: { PIXIU_FAKE_MCP_MODE: "hang" },
       timeoutMs: 50,
     })
     try {
@@ -60,7 +60,7 @@ describe("MCP client", () => {
     const client = new StdioMCPClient({
       command: process.execPath,
       args: [join(import.meta.dir, "..", "fixtures", "fake-mcp.ts")],
-      env: { MINICODE_FAKE_MCP_MODE: "stderr-exit" },
+      env: { PIXIU_FAKE_MCP_MODE: "stderr-exit" },
       timeoutMs: 500,
     })
     try {
@@ -74,7 +74,7 @@ describe("MCP client", () => {
     const client = new StdioMCPClient({
       command: process.execPath,
       args: [join(import.meta.dir, "..", "fixtures", "fake-mcp.ts")],
-      env: { MINICODE_FAKE_MCP_MODE: "collision" },
+      env: { PIXIU_FAKE_MCP_MODE: "collision" },
       timeoutMs: 2_000,
     })
     try {

@@ -36,7 +36,7 @@ describe("SkillHub provider", () => {
       const provider = new SkillHubProvider({ baseURL: `http://127.0.0.1:${server.port}` })
       const skills = await provider.search("demo")
       expect(skills[0]?.name).toBe("demo")
-      const root = await mkdtemp(join(tmpdir(), "minicode-skillhub-"))
+      const root = await mkdtemp(join(tmpdir(), "pixiu-skillhub-"))
       const result = await installRemoteSkill(await provider.detail("demo"), root, { installedAt: "2026-06-05T01:02:03.000Z" })
       expect(result.manifestPath).toBe(join(root, "demo", ".source.json"))
       expect(result.files.map((file) => file.path)).toEqual(["SKILL.md", "references/guide.md", ".source.json"])
@@ -45,7 +45,7 @@ describe("SkillHub provider", () => {
       const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"))
       expect(manifest).toMatchObject({
         schemaVersion: 1,
-        installer: "minicode",
+        installer: "pixiu",
         installedAt: "2026-06-05T01:02:03.000Z",
         remote: { id: "demo", name: "demo", source: "fake", version: "1.0.0" },
         targetDir: join(root, "demo"),
@@ -58,7 +58,7 @@ describe("SkillHub provider", () => {
   })
 
   test("rejects remote skill file path traversal", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skillhub-paths-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skillhub-paths-"))
     await expect(
       installRemoteSkill(
         {

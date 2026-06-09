@@ -2,6 +2,7 @@ import type { JsonValue } from "../shared/json"
 
 export type AgentEvent =
   | { type: "session_created"; sessionId: string }
+  | { type: "context_usage"; inputTokens: number; outputTokens?: number; source: "estimated" | "provider" }
   | { type: "assistant_progress_delta"; text: string }
   | { type: "llm_text_delta"; text: string }
   | { type: "tool_call"; id: string; name: string; input: JsonValue }

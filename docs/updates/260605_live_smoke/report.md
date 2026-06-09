@@ -1,10 +1,10 @@
-# minicode Live Smoke Report
+# pixiu Live Smoke Report
 
 Status: PASS
 Provider: https://api.siliconflow.cn/v1
 Model: deepseek-ai/DeepSeek-V3.2
-API key env: MINICODE_API_KEY
-Project: /home/gujing/code/minicode
+API key env: PIXIU_API_KEY
+Project: /home/gujing/code/pixiu
 
 ## Cases
 
@@ -29,5 +29,5 @@ Final message: I've successfully created `live-smoke-tool.md` in the workspace w
 Status: PASS
 Session: session_mq0zqbzx_0003_0dgxqfq
 Tool calls: shell, read, write, shell, read
-Produced files: .minicode/tmp/live-smoke-evidence.md
-Final message: I have successfully executed the live smoke test by creating `.minicode/tmp/live-smoke-evidence.md` with a local shell command. The file contains the required lines: `Command:`, `Source:`, and `Access time:`, along with the output from t...
+Produced files: .pixiu/tmp/live-smoke-evidence.md
+Final message: I have successfully executed the live smoke test by creating `.pixiu/tmp/live-smoke-evidence.md` with a local shell command. The file contains the required lines: `Command:`, `Source:`, and `Access time:`, along with the output from t...

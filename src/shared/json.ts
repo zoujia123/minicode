@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 
-import { MinicodeError } from "./errors"
+import { PixiuError } from "./errors"
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -61,7 +61,7 @@ export function parseJsonc<T = JsonValue>(input: string, source = "JSONC"): T {
   try {
     return JSON.parse(stripJsonComments(input)) as T
   } catch (cause) {
-    throw new MinicodeError(`Invalid ${source}: ${cause instanceof Error ? cause.message : String(cause)}`, {
+    throw new PixiuError(`Invalid ${source}: ${cause instanceof Error ? cause.message : String(cause)}`, {
       code: "CONFIG_PARSE_ERROR",
       cause,
     })
@@ -74,7 +74,7 @@ export async function readJsoncFile<T = JsonValue>(path: string) {
 
 export function asObject(value: JsonValue | undefined, label: string): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new MinicodeError(`${label} must be an object`, { code: "INVALID_JSON_OBJECT" })
+    throw new PixiuError(`${label} must be an object`, { code: "INVALID_JSON_OBJECT" })
   }
   return value
 }

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Prepare minicode for Manus-like session isolation by separating "where the session files live" from "where shell/code executes". This slice should keep the current workspace-directory backend as the default, while introducing the shape needed for container and later VM backends.
+Prepare pixiu for Manus-like session isolation by separating "where the session files live" from "where shell/code executes". This slice should keep the current workspace-directory backend as the default, while introducing the shape needed for container and later VM backends.
 
 ## First Slice: Workspace Backend Boundary
 
@@ -50,5 +50,5 @@ PATH=.tools/bun/bin:$PATH bun test
 Future opt-in container smoke should look like:
 
 ```bash
-MINICODE_CONTAINER_SMOKE=1 PATH=.tools/bun/bin:$PATH bun run smoke:container
+PIXIU_CONTAINER_SMOKE=1 PATH=.tools/bun/bin:$PATH bun run smoke:container
 ```

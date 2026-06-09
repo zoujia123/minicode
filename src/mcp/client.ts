@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createInterface } from "node:readline"
 
 import { createID } from "../shared/id"
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 import type { JsonObject, JsonValue } from "../shared/json"
 import type { MCPClient, MCPTool } from "./types"
 
@@ -29,12 +29,12 @@ export class StdioMCPClient implements MCPClient {
     reader.on("line", (line) => this.handleLine(line))
     this.child.stderr.on("data", (chunk) => this.appendStderr(chunk))
     this.child.on("error", (error) => {
-      this.rejectPending(new MinicodeError(`MCP server failed: ${error.message}${this.stderrSuffix()}`, { code: "MCP_SERVER_ERROR" }))
+      this.rejectPending(new PixiuError(`MCP server failed: ${error.message}${this.stderrSuffix()}`, { code: "MCP_SERVER_ERROR" }))
     })
     this.child.on("exit", (code, signal) => {
       const why = signal ? `signal ${signal}` : `exit code ${code ?? "unknown"}`
       this.child = undefined
-      this.rejectPending(new MinicodeError(`MCP server exited (${why})${this.stderrSuffix()}`, { code: "MCP_SERVER_EXITED" }))
+      this.rejectPending(new PixiuError(`MCP server exited (${why})${this.stderrSuffix()}`, { code: "MCP_SERVER_EXITED" }))
     })
   }
 
@@ -72,7 +72,7 @@ export class StdioMCPClient implements MCPClient {
     if (!pending) return
     clearTimeout(pending.timer)
     this.pending.delete(message.id)
-    if (message.error) pending.reject(new MinicodeError(String(message.error.message ?? message.error), { code: "MCP_ERROR" }))
+    if (message.error) pending.reject(new PixiuError(String(message.error.message ?? message.error), { code: "MCP_ERROR" }))
     else pending.resolve(message.result)
   }
 
@@ -84,7 +84,7 @@ export class StdioMCPClient implements MCPClient {
     return new Promise<JsonValue>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new MinicodeError(`MCP request timed out: ${method}${this.stderrSuffix()}`, { code: "MCP_TIMEOUT" }))
+        reject(new PixiuError(`MCP request timed out: ${method}${this.stderrSuffix()}`, { code: "MCP_TIMEOUT" }))
       }, timeoutMs)
       this.pending.set(id, { resolve, reject, timer })
       try {
@@ -92,7 +92,7 @@ export class StdioMCPClient implements MCPClient {
       } catch (cause) {
         clearTimeout(timer)
         this.pending.delete(id)
-        reject(new MinicodeError(`Failed to write MCP request: ${cause instanceof Error ? cause.message : String(cause)}${this.stderrSuffix()}`, { code: "MCP_WRITE_FAILED" }))
+        reject(new PixiuError(`Failed to write MCP request: ${cause instanceof Error ? cause.message : String(cause)}${this.stderrSuffix()}`, { code: "MCP_WRITE_FAILED" }))
       }
     })
   }
@@ -109,7 +109,7 @@ export class StdioMCPClient implements MCPClient {
   async close() {
     const child = this.child
     this.child = undefined
-    this.rejectPending(new MinicodeError("MCP server closed", { code: "MCP_CLOSED" }))
+    this.rejectPending(new PixiuError("MCP server closed", { code: "MCP_CLOSED" }))
     if (!child) return
     if (child.exitCode !== null || child.signalCode !== null) return
     const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()))
@@ -140,9 +140,9 @@ export class HttpMCPClient implements MCPClient {
         },
         body: JSON.stringify({ jsonrpc: "2.0", id: createID("mcp"), method, params }),
       })
-      if (!response.ok) throw new MinicodeError(`HTTP MCP failed (${response.status})`, { code: "MCP_HTTP_FAILED" })
+      if (!response.ok) throw new PixiuError(`HTTP MCP failed (${response.status})`, { code: "MCP_HTTP_FAILED" })
       const json: any = await response.json()
-      if (json.error) throw new MinicodeError(String(json.error.message ?? json.error), { code: "MCP_ERROR" })
+      if (json.error) throw new PixiuError(String(json.error.message ?? json.error), { code: "MCP_ERROR" })
       return json.result as JsonValue
     } finally {
       clearTimeout(timer)

@@ -12,7 +12,7 @@ import { ScriptedLLMClient } from "../fixtures/scripted-llm"
 
 describe("agent runner", () => {
   test("closes a scripted tool-call loop", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-agent-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-agent-"))
     const llm = new ScriptedLLMClient([
       [{ type: "tool_call", call: { id: "call_1", name: "echo", input: { text: "ping" } } }, { type: "finish", reason: "tool_calls" }],
       [{ type: "text_start" }, { type: "text_delta", text: "FINAL: pong" }, { type: "text_end", text: "FINAL: pong" }, { type: "finish", reason: "stop" }],
@@ -44,12 +44,49 @@ describe("agent runner", () => {
     const events = []
     for await (const event of runner.run({ message: "go" })) events.push(event)
 
+    expect(events.find((event) => event.type === "context_usage")).toMatchObject({
+      type: "context_usage",
+      source: "estimated",
+    })
     expect(events.some((event) => event.type === "tool_result" && event.ok)).toBe(true)
     expect(events.some((event) => event.type === "message" && event.content === "pong")).toBe(true)
   })
 
+  test("emits provider usage when the model stream includes it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-agent-provider-usage-"))
+    const runner = new AgentRunner({
+      llm: new ScriptedLLMClient([
+        [
+          { type: "usage", usage: { inputTokens: 321, outputTokens: 12, totalTokens: 333 } },
+          { type: "text_start" },
+          { type: "text_delta", text: "FINAL: usage ok" },
+          { type: "text_end", text: "FINAL: usage ok" },
+          { type: "finish", reason: "stop" },
+        ],
+      ]),
+      tools: new ToolRegistry(),
+      sessions: new MemorySessionStore(),
+      model: "scripted",
+      systemPrompt: "test",
+      maxSteps: 4,
+      toolContext: {
+        cwd: root,
+        workspaceRoot: root,
+        permissions: new StaticPermissionManager([{ tool: "*", action: "allow" }]),
+        pathGuard: new PathGuard({ workspaceRoot: root, workspaceOnly: true }),
+        config: { shellTimeoutMs: 500, outputMaxBytes: 4_000, envAllowlist: ["PATH"] },
+      },
+    })
+
+    const events = []
+    for await (const event of runner.run({ message: "go" })) events.push(event)
+
+    expect(events).toContainEqual({ type: "context_usage", inputTokens: 321, outputTokens: 12, source: "provider" })
+    expect(events.some((event) => event.type === "message" && event.content === "usage ok")).toBe(true)
+  })
+
   test("emits assistant progress before tool calls", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-agent-progress-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-agent-progress-"))
     const llm = new ScriptedLLMClient([
       [
         { type: "text_start" },
@@ -86,8 +123,9 @@ describe("agent runner", () => {
     const events = []
     for await (const event of runner.run({ message: "go" })) events.push(event)
 
-    expect(events.map((event) => event.type).slice(0, 4)).toEqual([
+    expect(events.map((event) => event.type).slice(0, 5)).toEqual([
       "session_created",
+      "context_usage",
       "assistant_progress_delta",
       "tool_call",
       "tool_result",
@@ -96,7 +134,7 @@ describe("agent runner", () => {
   })
 
   test("stops on LLM error events", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-agent-error-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-agent-error-"))
     const runner = new AgentRunner({
       llm: new ScriptedLLMClient([[{ type: "error", error: "LLM request failed (401): invalid key", code: "LLM_REQUEST_FAILED" }]]),
       tools: new ToolRegistry(),
@@ -122,7 +160,7 @@ describe("agent runner", () => {
   })
 
   test("continues when the assistant returns a non-final draft", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-agent-continue-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-agent-continue-"))
     const runner = new AgentRunner({
       llm: new ScriptedLLMClient([
         [{ type: "text_start" }, { type: "text_delta", text: "我来查询一下。" }, { type: "text_end", text: "我来查询一下。" }, { type: "finish", reason: "stop" }],
@@ -150,7 +188,7 @@ describe("agent runner", () => {
   })
 
   test("accepts markdown-bold FINAL marker without leaking it", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-agent-bold-final-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-agent-bold-final-"))
     const runner = new AgentRunner({
       llm: new ScriptedLLMClient([
         [
@@ -182,7 +220,7 @@ describe("agent runner", () => {
   })
 
   test("falls back after one non-final continuation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-agent-draft-fallback-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-agent-draft-fallback-"))
     const runner = new AgentRunner({
       llm: new ScriptedLLMClient([
         [{ type: "text_start" }, { type: "text_delta", text: "我先看看。" }, { type: "text_end", text: "我先看看。" }, { type: "finish", reason: "stop" }],
@@ -210,7 +248,7 @@ describe("agent runner", () => {
   })
 
   test("strips a final marker appended after continuation prose", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-agent-late-final-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-agent-late-final-"))
     const runner = new AgentRunner({
       llm: new ScriptedLLMClient([
         [{ type: "text_start" }, { type: "text_delta", text: "先确认一下。" }, { type: "text_end", text: "先确认一下。" }, { type: "finish", reason: "stop" }],

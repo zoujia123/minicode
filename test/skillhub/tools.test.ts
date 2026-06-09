@@ -24,7 +24,7 @@ describe("SkillHub tools", () => {
       },
     })
     try {
-      const cwd = await mkdtemp(join(tmpdir(), "minicode-skillhub-tool-"))
+      const cwd = await mkdtemp(join(tmpdir(), "pixiu-skillhub-tool-"))
       const install = createSkillHubTools({ baseURL: `http://127.0.0.1:${server.port}`, installDir: "skills" }, cwd).find(
         (tool) => tool.name === "skillhub_install",
       )!

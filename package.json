@@ -1,8 +1,11 @@
 {
-  "name": "minicode",
+  "name": "pixiu",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "pixiu": "./src/cli/index.ts"
+  },
   "packageManager": "bun@1.3.14",
   "scripts": {
     "dev": "bun run src/cli/index.ts",

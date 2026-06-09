@@ -6,7 +6,7 @@ import { toLLMMessages } from "../session/format"
 import type { ToolContext } from "../tools/types"
 import type { ToolRegistry } from "../tools/registry"
 import type { AgentEvent } from "./events"
-import { compactMessages } from "./compaction"
+import { approximateTokens, compactMessages } from "./compaction"
 import type { JsonObject } from "../shared/json"
 
 export type AgentRunnerOptions = {
@@ -48,19 +48,26 @@ export class AgentRunner {
     let draftContinuations = 0
     for (let step = 0; step < this.options.maxSteps; step += 1) {
       const storedMessages = await this.options.sessions.readMessages(session.id)
+      const currentSession = (await this.options.sessions.getSession(session.id)) ?? session
       const compacted = this.options.compaction ? compactMessages(storedMessages, this.options.compaction) : { messages: storedMessages }
-      if (compacted.summary) await this.options.sessions.updateSession(session.id, { summary: compacted.summary })
+      if (compacted.summary) {
+        const nextSummary = mergeSessionSummary(currentSession.summary, compacted.summary)
+        await this.options.sessions.updateSession(session.id, { summary: nextSummary })
+        currentSession.summary = nextSummary
+      }
 
       const messages: LLMMessage[] = [
         {
           role: "system",
-          content: [this.options.systemPrompt, AGENT_COMPLETION_PROTOCOL, compacted.summary ? `Conversation summary:\n${compacted.summary}` : ""]
+          content: [this.options.systemPrompt, AGENT_COMPLETION_PROTOCOL, currentSession.summary ? `Conversation summary:\n${currentSession.summary}` : ""]
             .filter(Boolean)
             .join("\n\n"),
         },
         ...toLLMMessages(compacted.messages),
         ...continuationMessages,
       ]
+
+      yield { type: "context_usage", inputTokens: estimateLLMInputTokens(messages), source: "estimated" }
 
       const toolCalls = []
       let assistantText = ""
@@ -77,6 +84,17 @@ export class AgentRunner {
         )) {
           if (event.type === "text_delta") {
             assistantText += event.text
+          }
+          if (event.type === "usage") {
+            const inputTokens = event.usage.inputTokens ?? event.usage.totalTokens
+            if (inputTokens !== undefined) {
+              yield {
+                type: "context_usage",
+                inputTokens,
+                ...(event.usage.outputTokens !== undefined ? { outputTokens: event.usage.outputTokens } : {}),
+                source: "provider",
+              }
+            }
           }
           if (event.type === "tool_call") {
             if (!progressYielded && assistantText.trim()) {
@@ -236,4 +254,21 @@ function parseFinalAnswer(text: string) {
   const trimmed = text.trim()
   const match = trimmed.match(/(?:^|\n)(?:\*\*)?FINAL\s*[:：](?:\*\*)?\s*([\s\S]*)$/i)
   return match ? match[1]?.trimStart() ?? "" : undefined
+}
+
+function mergeSessionSummary(existing: string | undefined, next: string) {
+  const current = existing?.trim()
+  const incoming = next.trim()
+  if (!current) return incoming
+  if (!incoming) return current
+  if (incoming.includes(current)) return incoming
+  if (current.includes(incoming)) return current
+  return `${current}\n\n${incoming}`
+}
+
+function estimateLLMInputTokens(messages: LLMMessage[]) {
+  return messages.reduce((total, message) => {
+    const toolCallTokens = message.toolCalls?.reduce((sum, call) => sum + approximateTokens(`${call.name} ${JSON.stringify(call.input)}`), 0) ?? 0
+    return total + approximateTokens(`${message.role}\n${message.content}`) + toolCallTokens
+  }, 0)
 }

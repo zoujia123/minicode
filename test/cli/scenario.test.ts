@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import type { AgentEvent } from "../../src/agent/events"
 import type { Match } from "../harness/llm-server"
-import { expectExit, parseJsonEvents, withMinicodeFixture } from "../harness/minicode-process"
+import { expectExit, parseJsonEvents, withPixiuFixture } from "../harness/pixiu-process"
 import { hang, requestBodyIncludes, requestHasToolResult, runScenario, streamError, text, tool } from "../harness/scenario"
 
 describe("scenario harness", () => {
@@ -48,7 +48,16 @@ describe("scenario harness", () => {
       expect: {
         exitCode: 0,
         timedOut: false,
-        eventTypes: ["session_created", "tool_call", "tool_result", "llm_text_delta", "message", "finish"],
+        eventTypes: [
+          "session_created",
+          "context_usage",
+          "tool_call",
+          "tool_result",
+          "context_usage",
+          "llm_text_delta",
+          "message",
+          "finish",
+        ],
         stdoutContains: ["matched after todo"],
         llmRequests: {
           count: 2,
@@ -59,14 +68,14 @@ describe("scenario harness", () => {
   })
 
   test("advertises local skills and lets the agent load one", async () => {
-    await withMinicodeFixture(async ({ llm, projectDir, run }) => {
-      await mkdir(join(projectDir, ".minicode", "skills", "demo", "references"), { recursive: true })
+    await withPixiuFixture(async ({ llm, projectDir, run }) => {
+      await mkdir(join(projectDir, ".pixiu", "skills", "demo", "references"), { recursive: true })
       await writeFile(
-        join(projectDir, ".minicode", "skills", "demo", "SKILL.md"),
+        join(projectDir, ".pixiu", "skills", "demo", "SKILL.md"),
         "---\nname: demo\ndescription: Use for demo workflows\n---\nAlways mention the demo workflow.",
         "utf8",
       )
-      await writeFile(join(projectDir, ".minicode", "skills", "demo", "references", "note.md"), "Demo reference note", "utf8")
+      await writeFile(join(projectDir, ".pixiu", "skills", "demo", "references", "note.md"), "Demo reference note", "utf8")
 
       llm.tool("skill", { name: "demo" })
       llm.text("FINAL: 已加载 demo skill", { match: requestHasToolResult("skill") })
@@ -91,7 +100,7 @@ describe("scenario harness", () => {
       expect: {
         exitCode: 2,
         timedOut: false,
-        eventTypes: ["session_created", "error", "finish"],
+        eventTypes: ["session_created", "context_usage", "error", "finish"],
         stdoutContains: ["Invalid provider stream chunk"],
       },
     })
@@ -111,7 +120,7 @@ describe("scenario harness", () => {
   })
 
   test("keeps concurrent run workspaces isolated", async () => {
-    await withMinicodeFixture(async ({ llm, projectDir, run }) => {
+    await withPixiuFixture(async ({ llm, projectDir, run }) => {
       const afterToolWith = (value: string): Match => (hit) => requestHasToolResult()(hit) && requestBodyIncludes(value)(hit)
 
       llm.tool("write", { path: "same.md", content: "alpha-content-001" }, { match: requestBodyIncludes("parallel alpha") })

@@ -1,9 +1,9 @@
-import type { MinicodeConfig } from "../config/defaults"
+import type { PixiuConfig } from "../config/defaults"
 import { formatError } from "../shared/errors"
 import { HttpMCPClient, StdioMCPClient } from "./client"
 import type { MCPClient, MCPServerStatus } from "./types"
 
-export type MCPServerConfig = MinicodeConfig["mcp"][string]
+export type MCPServerConfig = PixiuConfig["mcp"][string]
 
 export function createMCPClient(server: MCPServerConfig): MCPClient {
   return server.transport === "stdio"
@@ -40,7 +40,7 @@ export async function inspectMCPServer(name: string, server: MCPServerConfig): P
   }
 }
 
-export async function inspectMCPServers(config: MinicodeConfig) {
+export async function inspectMCPServers(config: PixiuConfig) {
   const entries = Object.entries(config.mcp).sort(([a], [b]) => a.localeCompare(b))
   return Promise.all(entries.map(([name, server]) => inspectMCPServer(name, server)))
 }

@@ -8,7 +8,7 @@ import { createSkillTools } from "../../src/skills/tool"
 
 describe("skill tool", () => {
   test("loads main skill instructions with reference file context", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skill-tool-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skill-tool-"))
     await mkdir(join(root, "demo", "references"), { recursive: true })
     await writeFile(join(root, "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo skill\n---\nUse demo carefully.", "utf8")
     await writeFile(join(root, "demo", "references", "guide.md"), "Guide body", "utf8")
@@ -24,7 +24,7 @@ describe("skill tool", () => {
   })
 
   test("loads a skill-relative reference file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skill-tool-ref-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skill-tool-ref-"))
     await mkdir(join(root, "demo", "references"), { recursive: true })
     await writeFile(join(root, "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo skill\n---\nbody", "utf8")
     await writeFile(join(root, "demo", "references", "guide.md"), "Guide body", "utf8")

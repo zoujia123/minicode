@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test"
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { expectExit, withMinicodeFixture } from "../harness/minicode-process"
+import { expectExit, withPixiuFixture } from "../harness/pixiu-process"
 
 describe("mcp CLI", () => {
   test("add writes stdio and http MCP server config", async () => {
-    await withMinicodeFixture(async ({ projectDir, exec }) => {
-      const configPath = join(projectDir, "minicode.jsonc")
+    await withPixiuFixture(async ({ projectDir, exec }) => {
+      const configPath = join(projectDir, "pixiu.jsonc")
       const fakeMcp = join(import.meta.dir, "..", "fixtures", "fake-mcp.ts")
 
       const stdio = await exec([
@@ -18,7 +18,7 @@ describe("mcp CLI", () => {
         "--timeout-ms",
         "1000",
         "--env",
-        "MINICODE_FAKE_MCP_MODE=echo",
+        "PIXIU_FAKE_MCP_MODE=echo",
         "--json",
         "--",
         process.execPath,
@@ -31,7 +31,7 @@ describe("mcp CLI", () => {
           transport: "stdio",
           command: process.execPath,
           args: [fakeMcp],
-          env: { MINICODE_FAKE_MCP_MODE: "echo" },
+          env: { PIXIU_FAKE_MCP_MODE: "echo" },
           timeoutMs: 1000,
         },
         overwritten: false,
@@ -60,7 +60,7 @@ describe("mcp CLI", () => {
         transport: "stdio",
         command: process.execPath,
         args: [fakeMcp],
-        env: { MINICODE_FAKE_MCP_MODE: "echo" },
+        env: { PIXIU_FAKE_MCP_MODE: "echo" },
         timeoutMs: 1000,
       })
       expect(config.mcp.remote).toMatchObject({
@@ -73,8 +73,8 @@ describe("mcp CLI", () => {
   })
 
   test("enable disable and remove update MCP server config", async () => {
-    await withMinicodeFixture(async ({ projectDir, exec }) => {
-      const configPath = join(projectDir, "minicode.jsonc")
+    await withPixiuFixture(async ({ projectDir, exec }) => {
+      const configPath = join(projectDir, "pixiu.jsonc")
       const fakeMcp = join(import.meta.dir, "..", "fixtures", "fake-mcp.ts")
       expectExit(await exec(["mcp", "add", "stdio", "local", "--", process.execPath, fakeMcp]), 0, "mcp add stdio")
 
@@ -109,7 +109,7 @@ describe("mcp CLI", () => {
   })
 
   test("metadata CLI commands exit when MCP stdio servers are configured", async () => {
-    await withMinicodeFixture(async ({ exec }) => {
+    await withPixiuFixture(async ({ exec }) => {
       const fakeMcp = join(import.meta.dir, "..", "fixtures", "fake-mcp.ts")
       expectExit(await exec(["mcp", "add", "stdio", "local", "--", process.execPath, fakeMcp]), 0, "mcp add stdio")
 
@@ -125,7 +125,7 @@ describe("mcp CLI", () => {
   })
 
   test("run command closes MCP stdio clients after completion", async () => {
-    await withMinicodeFixture(async ({ exec, llm }) => {
+    await withPixiuFixture(async ({ exec, llm }) => {
       const fakeMcp = join(import.meta.dir, "..", "fixtures", "fake-mcp.ts")
       expectExit(await exec(["mcp", "add", "stdio", "local", "--", process.execPath, fakeMcp]), 0, "mcp add stdio")
       llm.text("FINAL: run closed mcp")
@@ -137,8 +137,8 @@ describe("mcp CLI", () => {
   })
 
   test("list shows connected, failed, and disabled server status", async () => {
-    await withMinicodeFixture(async ({ projectDir, exec }) => {
-      const configPath = join(projectDir, "minicode.jsonc")
+    await withPixiuFixture(async ({ projectDir, exec }) => {
+      const configPath = join(projectDir, "pixiu.jsonc")
       const config = JSON.parse(await readFile(configPath, "utf8"))
       const fakeMcp = join(import.meta.dir, "..", "fixtures", "fake-mcp.ts")
       config.mcp = {
@@ -152,7 +152,7 @@ describe("mcp CLI", () => {
           transport: "stdio",
           command: process.execPath,
           args: [fakeMcp],
-          env: { MINICODE_FAKE_MCP_MODE: "stderr-exit" },
+          env: { PIXIU_FAKE_MCP_MODE: "stderr-exit" },
           timeoutMs: 500,
         },
         off: {

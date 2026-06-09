@@ -15,9 +15,9 @@ describe("shell sandbox helpers", () => {
   })
 
   test("detects obvious outside-workspace shell writes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-shell-helper-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-shell-helper-"))
 
     expect(findOutsideWorkspaceShellWrite("printf nope > ../outside.txt", root)).toBe("../outside.txt")
-    expect(findOutsideWorkspaceShellWrite("printf ok > .minicode/tmp/a.txt", root)).toBeUndefined()
+    expect(findOutsideWorkspaceShellWrite("printf ok > .pixiu/tmp/a.txt", root)).toBeUndefined()
   })
 })

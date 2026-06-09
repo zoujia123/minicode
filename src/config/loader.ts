@@ -1,9 +1,12 @@
 import { access } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { defaultConfig, type MinicodeConfig, type PermissionAction } from "./defaults"
-import { MinicodeError } from "../shared/errors"
+import { defaultConfig, type PixiuConfig, type PermissionAction } from "./defaults"
+import { PixiuError } from "../shared/errors"
 import { readJsoncFile } from "../shared/json"
+
+const CONFIG_FILE = "pixiu.jsonc"
+const LEGACY_CONFIG_FILE = "minicode.jsonc"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -30,39 +33,47 @@ async function exists(path: string) {
 
 export async function loadConfig(options: { cwd?: string; path?: string } = {}) {
   const cwd = options.cwd ?? process.cwd()
-  const configPath = options.path ? resolve(cwd, options.path) : resolve(cwd, "minicode.jsonc")
-  const fileConfig = (await exists(configPath)) ? await readJsoncFile<Partial<MinicodeConfig>>(configPath) : {}
-  const config = mergeDeep<MinicodeConfig>(defaultConfig, fileConfig)
+  const configPath = await resolveConfigPath(cwd, options.path)
+  const fileConfig = (await exists(configPath)) ? await readJsoncFile<Partial<PixiuConfig>>(configPath) : {}
+  const config = mergeDeep<PixiuConfig>(defaultConfig, fileConfig)
   validateConfig(config)
   return config
 }
 
-export function resolveProviderConfig(config: MinicodeConfig, name = "openai-compatible") {
+async function resolveConfigPath(cwd: string, path?: string) {
+  if (path) return resolve(cwd, path)
+  const primary = resolve(cwd, CONFIG_FILE)
+  if (await exists(primary)) return primary
+  const legacy = resolve(cwd, LEGACY_CONFIG_FILE)
+  return (await exists(legacy)) ? legacy : primary
+}
+
+export function resolveProviderConfig(config: PixiuConfig, name = "openai-compatible") {
   const provider = config.providers[name]
-  if (!provider) throw new MinicodeError(`Unknown provider: ${name}`, { code: "UNKNOWN_PROVIDER" })
+  if (!provider) throw new PixiuError(`Unknown provider: ${name}`, { code: "UNKNOWN_PROVIDER" })
   const apiKey = provider.apiKey ?? (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : undefined)
   return { ...provider, apiKey }
 }
 
-export function validateConfig(config: MinicodeConfig) {
+export function validateConfig(config: PixiuConfig) {
   const actions = new Set<PermissionAction>(["allow", "ask", "deny"])
-  if (!config.model) throw new MinicodeError("config.model is required", { code: "CONFIG_INVALID" })
-  if (!config.agents.default) throw new MinicodeError("config.agents.default is required", { code: "CONFIG_INVALID" })
+  if (!config.model) throw new PixiuError("config.model is required", { code: "CONFIG_INVALID" })
+  if (!config.agents.default) throw new PixiuError("config.agents.default is required", { code: "CONFIG_INVALID" })
   if (!["local", "workspace"].includes(config.sandbox.mode)) {
-    throw new MinicodeError(`config.sandbox.mode has invalid value: ${String(config.sandbox.mode)}`, {
+    throw new PixiuError(`config.sandbox.mode has invalid value: ${String(config.sandbox.mode)}`, {
       code: "CONFIG_INVALID",
     })
   }
   if (!config.sandbox.workspaceDir) {
-    throw new MinicodeError("config.sandbox.workspaceDir is required", { code: "CONFIG_INVALID" })
+    throw new PixiuError("config.sandbox.workspaceDir is required", { code: "CONFIG_INVALID" })
   }
   if (!isRecord(config.ui) || typeof config.ui.accentColor !== "string" || !/^#[0-9a-fA-F]{6}$/.test(config.ui.accentColor)) {
-    throw new MinicodeError("config.ui.accentColor must be a hex color like #3B8EEA", { code: "CONFIG_INVALID" })
+    throw new PixiuError("config.ui.accentColor must be a hex color like #3B8EEA", { code: "CONFIG_INVALID" })
   }
   for (const [tool, rule] of Object.entries(config.permissions)) {
     const action = typeof rule === "string" ? rule : rule.action
     if (!actions.has(action)) {
-      throw new MinicodeError(`config.permissions.${tool} has invalid action: ${String(action)}`, {
+      throw new PixiuError(`config.permissions.${tool} has invalid action: ${String(action)}`, {
         code: "CONFIG_INVALID",
       })
     }

@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, writeFile, appendFile } from "node:fs/promise
 import { dirname, join } from "node:path"
 
 import { createID } from "../shared/id"
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 import type { CreateSessionInput, SessionMessage, SessionRecord, SessionStore } from "./types"
 
 type SessionLine =
@@ -38,7 +38,7 @@ export class JsonlSessionStore implements SessionStore {
 
   async appendMessage(input: Omit<SessionMessage, "id" | "createdAt"> & Partial<Pick<SessionMessage, "id" | "createdAt">>) {
     const session = await this.getSession(input.sessionId)
-    if (!session) throw new MinicodeError(`Unknown session: ${input.sessionId}`, { code: "SESSION_NOT_FOUND" })
+    if (!session) throw new PixiuError(`Unknown session: ${input.sessionId}`, { code: "SESSION_NOT_FOUND" })
     const message: SessionMessage = {
       id: input.id ?? createID("msg"),
       sessionId: input.sessionId,
@@ -74,7 +74,7 @@ export class JsonlSessionStore implements SessionStore {
 
   async updateSession(sessionId: string, patch: Partial<SessionRecord>) {
     const session = await this.getSession(sessionId)
-    if (!session) throw new MinicodeError(`Unknown session: ${sessionId}`, { code: "SESSION_NOT_FOUND" })
+    if (!session) throw new PixiuError(`Unknown session: ${sessionId}`, { code: "SESSION_NOT_FOUND" })
     const next = { ...session, ...patch, updatedAt: new Date().toISOString() }
     await this.appendLine(sessionId, { type: "update", patch: next })
     return next
@@ -100,7 +100,7 @@ export class JsonlSessionStore implements SessionStore {
       try {
         line = JSON.parse(raw) as SessionLine
       } catch (cause) {
-        throw new MinicodeError(`Invalid JSONL in ${path}:${index + 1}`, {
+        throw new PixiuError(`Invalid JSONL in ${path}:${index + 1}`, {
           code: "SESSION_JSONL_INVALID",
           cause,
         })

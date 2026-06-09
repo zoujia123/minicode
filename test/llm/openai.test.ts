@@ -32,6 +32,33 @@ describe("OpenAI-compatible LLM client", () => {
     }
   })
 
+  test("emits provider usage from streaming chunks", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(
+          [
+            `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }], usage: { prompt_tokens: 123, completion_tokens: 4, total_tokens: 127 } })}`,
+            `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}`,
+            "data: [DONE]",
+            "",
+          ].join("\n"),
+          { headers: { "content-type": "text/event-stream" } },
+        )
+      },
+    })
+    try {
+      const client = new OpenAICompatibleClient({ baseURL: `http://127.0.0.1:${server.port}`, apiKey: "ok" })
+      const events = []
+      for await (const event of client.stream({ model: "fake", messages: [{ role: "user", content: "hi" }] })) {
+        events.push(event)
+      }
+      expect(events).toContainEqual({ type: "usage", usage: { inputTokens: 123, outputTokens: 4, totalTokens: 127 } })
+    } finally {
+      server.stop(true)
+    }
+  })
+
   test("returns structured error events on provider failure", async () => {
     const server = Bun.serve({
       port: 0,

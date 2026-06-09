@@ -3,11 +3,11 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import type { AgentEvent } from "../src/agent/events"
-import type { MinicodeConfig } from "../src/config/defaults"
+import type { PixiuConfig } from "../src/config/defaults"
 import { loadConfig, resolveProviderConfig } from "../src/config/loader"
 import { buildRuntime } from "../src/runtime/build"
 import type { Runtime } from "../src/runtime/build"
-import { formatError, MinicodeError } from "../src/shared/errors"
+import { formatError, PixiuError } from "../src/shared/errors"
 import { redactSecrets } from "../src/shared/redact"
 
 type SmokeCase = {
@@ -45,7 +45,7 @@ export type LiveSmokeOptions = {
 }
 
 const TOOL_FILE = "live-smoke-tool.md"
-const TEMP_EVIDENCE_FILE = ".minicode/tmp/live-smoke-evidence.md"
+const TEMP_EVIDENCE_FILE = ".pixiu/tmp/live-smoke-evidence.md"
 
 export async function runLiveSmoke(options: LiveSmokeOptions = {}): Promise<LiveSmokeReport> {
   const cwd = resolve(options.cwd ?? process.cwd())
@@ -53,7 +53,7 @@ export async function runLiveSmoke(options: LiveSmokeOptions = {}): Promise<Live
   const provider = resolveProviderConfig(config)
   const apiKeyEnv = provider.apiKeyEnv
   if (!provider.apiKey) {
-    throw new MinicodeError(
+    throw new PixiuError(
       `Live smoke requires a provider API key. Set ${apiKeyEnv ?? "the configured provider apiKeyEnv"} before running smoke:live.`,
       { code: "LIVE_SMOKE_API_KEY_MISSING" },
     )
@@ -126,7 +126,7 @@ function smokeCases(): SmokeCase[] {
   ]
 }
 
-async function runCase(input: { cwd: string; config: MinicodeConfig; item: SmokeCase; timeoutMs: number }): Promise<LiveSmokeCaseResult> {
+async function runCase(input: { cwd: string; config: PixiuConfig; item: SmokeCase; timeoutMs: number }): Promise<LiveSmokeCaseResult> {
   const events: AgentEvent[] = []
   const controller = new AbortController()
   let timedOut = false
@@ -199,7 +199,7 @@ async function writeReport(report: LiveSmokeReport) {
 
 export function renderReport(report: LiveSmokeReport) {
   return [
-    "# minicode Live Smoke Report",
+    "# pixiu Live Smoke Report",
     "",
     `Status: ${report.ok ? "PASS" : "FAIL"}`,
     `Provider: ${safe(report.provider.baseURL ?? "(default)")}`,
@@ -242,7 +242,7 @@ function isMain() {
 if (isMain()) {
   try {
     const report = await runLiveSmoke(
-      process.env.MINICODE_LIVE_SMOKE_REPORT ? { reportPath: process.env.MINICODE_LIVE_SMOKE_REPORT } : {},
+      process.env.PIXIU_LIVE_SMOKE_REPORT ? { reportPath: process.env.PIXIU_LIVE_SMOKE_REPORT } : {},
     )
     console.log(renderReport(report))
     process.exitCode = report.ok ? 0 : 1

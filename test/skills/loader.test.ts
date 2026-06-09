@@ -7,7 +7,7 @@ import { SkillLoader } from "../../src/skills/loader"
 
 describe("skill loader", () => {
   test("discovers and loads local skills", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skills-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-"))
     await mkdir(join(root, "demo", "references"), { recursive: true })
     await writeFile(join(root, "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo skill\n---\nbody", "utf8")
     await writeFile(join(root, "demo", "references", "usage.md"), "reference body", "utf8")
@@ -24,7 +24,7 @@ describe("skill loader", () => {
   })
 
   test("falls back to heading and body when frontmatter is absent", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skills-heading-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-heading-"))
     await mkdir(join(root, "heading"), { recursive: true })
     await writeFile(join(root, "heading", "SKILL.md"), "# heading-skill\n\nUse this skill for heading fallback.", "utf8")
     const loader = new SkillLoader([root])
@@ -34,7 +34,7 @@ describe("skill loader", () => {
   })
 
   test("parses simple multiline frontmatter descriptions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skills-frontmatter-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-frontmatter-"))
     await mkdir(join(root, "multi"), { recursive: true })
     await writeFile(join(root, "multi", "SKILL.md"), "---\nname: multi\ndescription: |\n  Line one.\n  Line two.\n---\nbody", "utf8")
     const loader = new SkillLoader([root])
@@ -43,7 +43,7 @@ describe("skill loader", () => {
   })
 
   test("searches local skills by name, description, and path", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skills-search-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-search-"))
     await mkdir(join(root, "react"), { recursive: true })
     await mkdir(join(root, "python"), { recursive: true })
     await writeFile(join(root, "react", "SKILL.md"), "---\nname: react-ui\ndescription: Build React components\n---\nbody", "utf8")
@@ -56,8 +56,8 @@ describe("skill loader", () => {
   })
 
   test("keeps deterministic first source and reports duplicate skills", async () => {
-    const first = await mkdtemp(join(tmpdir(), "minicode-skills-first-"))
-    const second = await mkdtemp(join(tmpdir(), "minicode-skills-second-"))
+    const first = await mkdtemp(join(tmpdir(), "pixiu-skills-first-"))
+    const second = await mkdtemp(join(tmpdir(), "pixiu-skills-second-"))
     await mkdir(join(first, "demo"), { recursive: true })
     await mkdir(join(second, "demo"), { recursive: true })
     await writeFile(join(first, "demo", "SKILL.md"), "---\nname: demo\ndescription: First source\n---\nfirst", "utf8")
@@ -72,7 +72,7 @@ describe("skill loader", () => {
   })
 
   test("skips invalid skills and exposes diagnostics", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skills-invalid-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-invalid-"))
     await mkdir(join(root, "bad"), { recursive: true })
     await writeFile(join(root, "bad", "SKILL.md"), "---\nname: bad\n---\n", "utf8")
     const loader = new SkillLoader([root])
@@ -84,7 +84,7 @@ describe("skill loader", () => {
   })
 
   test("rejects relative path escape", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skills-escape-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-escape-"))
     await mkdir(join(root, "demo"), { recursive: true })
     await writeFile(join(root, "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo skill\n---\nbody", "utf8")
     const loader = new SkillLoader([root])
@@ -93,7 +93,7 @@ describe("skill loader", () => {
   })
 
   test("rejects empty and absolute reference paths", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-skills-paths-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-paths-"))
     await mkdir(join(root, "demo"), { recursive: true })
     await writeFile(join(root, "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo skill\n---\nbody", "utf8")
     const loader = new SkillLoader([root])

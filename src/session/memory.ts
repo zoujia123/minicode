@@ -1,5 +1,5 @@
 import { createID } from "../shared/id"
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 import type { CreateSessionInput, SessionMessage, SessionRecord, SessionStore } from "./types"
 
 export class MemorySessionStore implements SessionStore {
@@ -23,7 +23,7 @@ export class MemorySessionStore implements SessionStore {
 
   async appendMessage(input: Omit<SessionMessage, "id" | "createdAt"> & Partial<Pick<SessionMessage, "id" | "createdAt">>) {
     const session = this.sessions.get(input.sessionId)
-    if (!session) throw new MinicodeError(`Unknown session: ${input.sessionId}`, { code: "SESSION_NOT_FOUND" })
+    if (!session) throw new PixiuError(`Unknown session: ${input.sessionId}`, { code: "SESSION_NOT_FOUND" })
     const message: SessionMessage = {
       id: input.id ?? createID("msg"),
       sessionId: input.sessionId,
@@ -50,7 +50,7 @@ export class MemorySessionStore implements SessionStore {
 
   async updateSession(sessionId: string, patch: Partial<SessionRecord>) {
     const session = this.sessions.get(sessionId)
-    if (!session) throw new MinicodeError(`Unknown session: ${sessionId}`, { code: "SESSION_NOT_FOUND" })
+    if (!session) throw new PixiuError(`Unknown session: ${sessionId}`, { code: "SESSION_NOT_FOUND" })
     const updated = { ...session, ...patch, updatedAt: new Date().toISOString() }
     this.sessions.set(sessionId, updated)
     return updated

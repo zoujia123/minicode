@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { basename, dirname, join, resolve } from "node:path"
 
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 import type {
   RemoteSkillDetail,
   RemoteSkillSummary,
@@ -31,7 +31,7 @@ export class SkillHubProvider {
       headers: this.headers(),
       body: JSON.stringify({ query, limit, method: "hybrid" }),
     })
-    if (!response.ok) throw new MinicodeError(`SkillHub search failed (${response.status})`, { code: "SKILLHUB_SEARCH_FAILED" })
+    if (!response.ok) throw new PixiuError(`SkillHub search failed (${response.status})`, { code: "SKILLHUB_SEARCH_FAILED" })
     const json: any = await response.json()
     const rows = Array.isArray(json) ? json : json.skills ?? json.results ?? []
     return rows.slice(0, limit).map((item: any, index: number) => {
@@ -50,7 +50,7 @@ export class SkillHubProvider {
   async detail(id: string): Promise<RemoteSkillDetail> {
     const url = `${this.options.baseURL.replace(/\/$/, "")}/api/v1/skills/${encodeURIComponent(id)}`
     const response = await fetch(url, { headers: this.headers() })
-    if (!response.ok) throw new MinicodeError(`SkillHub detail failed (${response.status})`, { code: "SKILLHUB_DETAIL_FAILED" })
+    if (!response.ok) throw new PixiuError(`SkillHub detail failed (${response.status})`, { code: "SKILLHUB_DETAIL_FAILED" })
     const item: any = await response.json()
     const name = String(item.name ?? item.title ?? id)
     const detail: RemoteSkillDetail = {
@@ -136,7 +136,7 @@ function normalizeRemoteFilePath(path: string) {
     normalized.startsWith("/") ||
     parts.some((part) => !part || part === "." || part === "..")
   ) {
-    throw new MinicodeError(`Invalid remote skill file path: ${path}`, { code: "SKILLHUB_FILE_PATH_INVALID" })
+    throw new PixiuError(`Invalid remote skill file path: ${path}`, { code: "SKILLHUB_FILE_PATH_INVALID" })
   }
   return parts.join("/")
 }
@@ -180,7 +180,7 @@ function installManifest(input: {
 }): SkillInstallManifest {
   return {
     schemaVersion: 1,
-    installer: "minicode",
+    installer: "pixiu",
     installedAt: input.installedAt,
     remote: remoteSummary(input.skill),
     targetDir: input.targetDir,

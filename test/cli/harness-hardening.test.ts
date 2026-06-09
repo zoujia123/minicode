@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test"
 import { readdir, readFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 
-import type { MinicodeProcessResult } from "../harness/minicode-process"
-import { expectExit, withMinicodeFixture } from "../harness/minicode-process"
+import type { PixiuProcessResult } from "../harness/pixiu-process"
+import { expectExit, withPixiuFixture } from "../harness/pixiu-process"
 import { runScenario, text, tool } from "../harness/scenario"
 
 describe("harness hardening", () => {
   test("fake LLM exposes calls, inputs, pending, and wait", async () => {
-    await withMinicodeFixture(async ({ llm, run }) => {
+    await withPixiuFixture(async ({ llm, run }) => {
       await expect(llm.wait(1, { timeoutMs: 10 })).rejects.toThrow("Timed out waiting")
 
       llm.text("FINAL: observed")
@@ -61,9 +61,9 @@ describe("harness hardening", () => {
   })
 
   test("spawn handles are closed by fixture teardown", async () => {
-    let resultPromise: Promise<MinicodeProcessResult> | undefined
+    let resultPromise: Promise<PixiuProcessResult> | undefined
 
-    await withMinicodeFixture(async ({ llm, spawn }) => {
+    await withPixiuFixture(async ({ llm, spawn }) => {
       llm.hang()
       const handle = spawn(["run", "--json", "hang until teardown"], { timeoutMs: 30_000 })
       resultPromise = handle.result()

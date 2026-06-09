@@ -2,7 +2,7 @@
 
 ## Goal
 
-Harden minicode's MCP layer from "best-effort tool import" into a diagnosable external capability boundary. Broken MCP servers should be visible, disabled servers should be explicit, and imported tools should be safe and deterministic.
+Harden pixiu's MCP layer from "best-effort tool import" into a diagnosable external capability boundary. Broken MCP servers should be visible, disabled servers should be explicit, and imported tools should be safe and deterministic.
 
 ## First Slice: Status And Tool Import Baseline
 
@@ -11,9 +11,9 @@ Harden minicode's MCP layer from "best-effort tool import" into a diagnosable ex
   - [x] `failed` with a short error summary.
   - [x] `disabled` for config entries with `enabled: false`.
 - [x] Improve CLI status
-  - [x] `minicode mcp list` prints server name, status, tool count, and error summary.
-  - [x] `minicode mcp list --json` exposes structured status.
-  - [x] `minicode mcp test <name>` uses the same client creation path as runtime.
+  - [x] `pixiu mcp list` prints server name, status, tool count, and error summary.
+  - [x] `pixiu mcp list --json` exposes structured status.
+  - [x] `pixiu mcp test <name>` uses the same client creation path as runtime.
 - [x] Harden stdio MCP lifecycle
   - [x] Reject pending requests when the child exits or errors.
   - [x] Capture bounded stderr and include it in failure messages.

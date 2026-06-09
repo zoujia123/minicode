@@ -19,7 +19,7 @@ Harden the local workspace sandbox and permission layer now that real providers 
   - [x] Use the classification before permission evaluation.
 - [x] Strengthen workspace and env tests
   - [x] Shell redirection cannot easily write outside the workspace.
-  - [x] `.minicode/tmp` remains usable for temporary task files.
+  - [x] `.pixiu/tmp` remains usable for temporary task files.
   - [x] Shell env allowlist does not expose provider API keys.
 - [x] Harden live smoke safety
   - [x] Add an outer timeout to live smoke cases.

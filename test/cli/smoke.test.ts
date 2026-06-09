@@ -2,16 +2,16 @@ import { describe, expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { expectExit, withMinicodeFixture } from "../harness/minicode-process"
+import { expectExit, withPixiuFixture } from "../harness/pixiu-process"
 
-describe("minicode CLI smoke subprocesses", () => {
+describe("pixiu CLI smoke subprocesses", () => {
   test("read-only commands run in an isolated project", async () => {
-    await withMinicodeFixture(async ({ exec }) => {
+    await withPixiuFixture(async ({ exec }) => {
       const doctor = await exec(["doctor"])
       expectExit(doctor, 0, "doctor")
-      expect(doctor.stdout).toContain("minicode doctor")
+      expect(doctor.stdout).toContain("pixiu doctor")
       expect(doctor.stdout).toContain("openai-compatible/test-model")
-      expect(doctor.stdout).toContain("MINICODE_TEST_API_KEY is set")
+      expect(doctor.stdout).toContain("PIXIU_TEST_API_KEY is set")
 
       const tools = await exec(["tool", "list"])
       expectExit(tools, 0, "tool list")
@@ -43,7 +43,7 @@ describe("minicode CLI smoke subprocesses", () => {
   })
 
   test("quick provider setup writes redacted plug-and-play config", async () => {
-    await withMinicodeFixture(async ({ exec, projectDir }) => {
+    await withPixiuFixture(async ({ exec, projectDir }) => {
       const result = await exec(["config", "use", "siliconflow", "sk-test-secret", "deepseek-ai/DeepSeek-V3.2"])
       expectExit(result, 0, "config use")
       expect(result.stdout).toContain("Provider config saved")
@@ -55,7 +55,7 @@ describe("minicode CLI smoke subprocesses", () => {
       expect(getKey.stdout).toContain("[redacted]")
       expect(getKey.stdout).not.toContain("sk-test-secret")
 
-      const raw = JSON.parse(await readFile(join(projectDir, "minicode.jsonc"), "utf8"))
+      const raw = JSON.parse(await readFile(join(projectDir, "pixiu.jsonc"), "utf8"))
       expect(raw.model).toBe("deepseek-ai/DeepSeek-V3.2")
       expect(raw.providers["openai-compatible"].baseURL).toBe("https://api.siliconflow.cn/v1")
       expect(raw.providers["openai-compatible"].apiKey).toBe("sk-test-secret")
@@ -64,15 +64,15 @@ describe("minicode CLI smoke subprocesses", () => {
   })
 
   test("quick provider setup can reference an environment variable", async () => {
-    await withMinicodeFixture(async ({ exec, projectDir }) => {
-      const result = await exec(["config", "use-env", "https://api.example.test/v1/", "MINICODE_API_KEY", "provider/model"])
+    await withPixiuFixture(async ({ exec, projectDir }) => {
+      const result = await exec(["config", "use-env", "https://api.example.test/v1/", "PIXIU_API_KEY", "provider/model"])
       expectExit(result, 0, "config use-env")
-      expect(result.stdout).toContain("env MINICODE_API_KEY")
+      expect(result.stdout).toContain("env PIXIU_API_KEY")
 
-      const raw = JSON.parse(await readFile(join(projectDir, "minicode.jsonc"), "utf8"))
+      const raw = JSON.parse(await readFile(join(projectDir, "pixiu.jsonc"), "utf8"))
       expect(raw.model).toBe("provider/model")
       expect(raw.providers["openai-compatible"].baseURL).toBe("https://api.example.test/v1")
-      expect(raw.providers["openai-compatible"].apiKeyEnv).toBe("MINICODE_API_KEY")
+      expect(raw.providers["openai-compatible"].apiKeyEnv).toBe("PIXIU_API_KEY")
       expect(raw.providers["openai-compatible"].apiKey).toBeUndefined()
     })
   })

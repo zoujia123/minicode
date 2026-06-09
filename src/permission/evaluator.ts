@@ -1,4 +1,4 @@
-import type { MinicodeConfig, PermissionAction } from "../config/defaults"
+import type { PixiuConfig, PermissionAction } from "../config/defaults"
 import type { PermissionDecision, PermissionManager, PermissionMode, PermissionRequest, PermissionRule } from "./types"
 
 const EDIT_TOOLS = new Set(["write", "edit", "patch"])
@@ -9,7 +9,7 @@ function wildcardMatch(pattern: string, value: string) {
   return new RegExp(`^${escaped}$`).test(value)
 }
 
-export function normalizePermissionRules(config: MinicodeConfig): PermissionRule[] {
+export function normalizePermissionRules(config: PixiuConfig): PermissionRule[] {
   return Object.entries(config.permissions).map(([tool, rule]) => {
     if (typeof rule === "string") return { tool, action: rule }
     const normalized: PermissionRule = { tool, action: rule.action }

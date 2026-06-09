@@ -14,7 +14,7 @@ function configWithMissingKey() {
       "openai-compatible": {
         type: "openai-compatible" as const,
         baseURL: "https://example.com/v1",
-        apiKeyEnv: "MINICODE_TEST_MISSING_KEY",
+        apiKeyEnv: "PIXIU_TEST_MISSING_KEY",
       },
     },
   }
@@ -22,7 +22,7 @@ function configWithMissingKey() {
 
 describe("runtime build", () => {
   test("does not run an agent without a provider API key", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-no-key-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-no-key-"))
 
     await expect(
       buildRuntime({
@@ -33,7 +33,7 @@ describe("runtime build", () => {
   })
 
   test("can build metadata runtime without a provider API key", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-no-key-metadata-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-no-key-metadata-"))
 
     const runtime = await buildRuntime({
       cwd: root,
@@ -46,7 +46,7 @@ describe("runtime build", () => {
   })
 
   test("broken MCP servers do not hide built-in tools", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-bad-mcp-runtime-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-bad-mcp-runtime-"))
     const runtime = await buildRuntime({
       cwd: root,
       config: {
@@ -56,7 +56,7 @@ describe("runtime build", () => {
             transport: "stdio",
             command: process.execPath,
             args: [join(import.meta.dir, "..", "fixtures", "fake-mcp.ts")],
-            env: { MINICODE_FAKE_MCP_MODE: "stderr-exit" },
+            env: { PIXIU_FAKE_MCP_MODE: "stderr-exit" },
             timeoutMs: 500,
           },
         },
@@ -69,7 +69,7 @@ describe("runtime build", () => {
   })
 
   test("runs new sessions inside workspace session directories", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-workspace-runtime-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-workspace-runtime-"))
     const runtime = await buildRuntime({
       cwd: root,
       config: {

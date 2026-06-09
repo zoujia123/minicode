@@ -1,4 +1,4 @@
-# minicode Usage
+# pixiu Usage
 
 ## Install
 
@@ -12,7 +12,7 @@ PATH=.tools/bun/bin:$PATH bun test
 
 ## Provider Config
 
-Create `minicode.jsonc` in the project root:
+Create `pixiu.jsonc` in the project root:
 
 ```jsonc
 {
@@ -21,7 +21,7 @@ Create `minicode.jsonc` in the project root:
     "openai-compatible": {
       "type": "openai-compatible",
       "baseURL": "https://api.example.com/v1",
-      "apiKeyEnv": "MINICODE_API_KEY",
+      "apiKeyEnv": "PIXIU_API_KEY",
       "model": "provider/model"
     }
   }
@@ -31,10 +31,10 @@ Create `minicode.jsonc` in the project root:
 Then run with a real provider key:
 
 ```bash
-MINICODE_API_KEY=... minicode run "hello"
+PIXIU_API_KEY=... pixiu run "hello"
 ```
 
-`run` and `chat` require a real provider API key. minicode does not provide an offline heuristic agent mode.
+`run` and `chat` require a real provider API key. pixiu does not provide an offline heuristic agent mode.
 
 Real provider smoke is explicit opt-in:
 
@@ -45,25 +45,25 @@ PATH=.tools/bun/bin:$PATH bun run smoke:llm
 ## Run
 
 ```bash
-minicode
-minicode run "hello"
-minicode -p "hello"
-minicode run --json "hello"
-minicode run --output-format json "hello"
-minicode run --output-format stream-json "hello"
-minicode run -c "continue the latest session"
-minicode run --session <session-id> "continue"
-minicode run --permission-mode acceptEdits "update docs"
-minicode chat
-minicode session list
-minicode session resume
-minicode session show <session-id>
-minicode config list
-minicode config get model
-minicode config set sandbox.shellTimeoutMs 30000
+pixiu
+pixiu run "hello"
+pixiu -p "hello"
+pixiu run --json "hello"
+pixiu run --output-format json "hello"
+pixiu run --output-format stream-json "hello"
+pixiu run -c "continue the latest session"
+pixiu run --session <session-id> "continue"
+pixiu run --permission-mode acceptEdits "update docs"
+pixiu chat
+pixiu session list
+pixiu session resume
+pixiu session show <session-id>
+pixiu config list
+pixiu config get model
+pixiu config set sandbox.shellTimeoutMs 30000
 ```
 
-`minicode` with no arguments starts the interactive chat UI. Use this when you want the CodeBuddy-style terminal experience with a startup panel, recent activity, shortcut hints, and an input prompt.
+`pixiu` with no arguments starts the interactive chat UI. Use this when you want the CodeBuddy-style terminal experience with a startup panel, recent activity, shortcut hints, and an input prompt.
 
 Default `run` output is formatted for people: it streams concise traces for tool calls and then prints the final answer. For example, shell calls show the command, exit code, elapsed time, and output size; failed tools also show a short redacted preview.
 
@@ -72,7 +72,7 @@ Default `run` output is formatted for people: it streams concise traces for tool
 Output formats:
 
 - `--output-format text`: default human output.
-- `--json`: compatibility JSONL stream of minicode agent events.
+- `--json`: compatibility JSONL stream of pixiu agent events.
 - `--output-format json`: pretty JSON array ending with a `result` summary.
 - `--output-format stream-json`: realtime newline-delimited JSON with a CodeBuddy-style `system/init` event, assistant/tool events, and a final `result` event. By default it emits complete assistant messages rather than duplicate partial text deltas.
 
@@ -99,7 +99,7 @@ Use `--yes` only when you want non-interactive approval for high-risk tools such
 
 `doctor` now reports a compact table for config, provider key presence, workspace/session state, skills, and MCP. Use `doctor --json` for scripts. Provider keys and config secrets are redacted in config output.
 
-`config set` rewrites the project `minicode.jsonc` as formatted JSON. It does not preserve JSONC comments yet, so keep comment-heavy templates under version control before using automated config writes.
+`config set` rewrites the project `pixiu.jsonc` as formatted JSON. It does not preserve JSONC comments yet, so keep comment-heavy templates under version control before using automated config writes.
 
 By default, each new run uses a per-session workspace directory:
 
@@ -107,15 +107,15 @@ By default, each new run uses a per-session workspace directory:
 workspace/<session-id>/
 ```
 
-File tools and shell commands run inside that directory, so task artifacts do not pollute the minicode repo root. When you continue with `--session <session-id>`, minicode reuses the original session workspace. Set `sandbox.mode` to `local` if you intentionally want the older behavior where tools run directly in the project root.
+File tools and shell commands run inside that directory, so task artifacts do not pollute the pixiu repo root. When you continue with `--session <session-id>`, pixiu reuses the original session workspace. Set `sandbox.mode` to `local` if you intentionally want the older behavior where tools run directly in the project root.
 
-Use `-c` / `--continue` to resume the most recently updated session. `minicode session resume` prints that latest session id for scripts.
+Use `-c` / `--continue` to resume the most recently updated session. `pixiu session resume` prints that latest session id for scripts.
 
-In `minicode chat`, use `/help` for slash commands and `/clear` to hide the visible transcript while keeping the active session and context. Use `/paste` for multiline input, finish with a single `.`, and cancel the buffer with `/cancel` or Ctrl-C. Blank input is ignored instead of exiting. Ctrl-D exits cleanly. Ctrl-C once warns at the prompt or cancels an active run; Ctrl-C again exits.
+In `pixiu chat`, use `/help` for slash commands and `/clear` to hide the visible transcript while keeping the active session and context. Use `/paste` for multiline input, finish with a single `.`, and cancel the buffer with `/cancel` or Ctrl-C. Blank input is ignored instead of exiting. Ctrl-D exits cleanly. Ctrl-C once warns at the prompt or cancels an active run; Ctrl-C again exits.
 
 When `chat` asks for a risky tool permission, answer `y` to allow once, `a` to allow matching requests for the current chat session, or press Enter/`n` to deny once.
 
-Agent runs use an internal completion protocol: the model should mark a true final answer with `FINAL:`. If it only says what it plans to do, minicode treats that text as a draft and asks it to continue once; if the model still does not mark a final answer, minicode returns the next text response as a fallback so the run does not spin forever.
+Agent runs use an internal completion protocol: the model should mark a true final answer with `FINAL:`. If it only says what it plans to do, pixiu treats that text as a draft and asks it to continue once; if the model still does not mark a final answer, pixiu returns the next text response as a fallback so the run does not spin forever.
 
 ## Core Tools
 
@@ -127,14 +127,14 @@ The default agent is intentionally small. Built-ins include:
 - `todo`
 - `skill`
 
-The important product rule is: do not hard-code every domain as a permanent tool. For live data or one-off automation, the agent should inspect available tools/skills first. If no reliable tool exists, it should create a short temporary script under `.minicode/tmp/` or run a shell command, parse the result, and write the requested artifact.
+The important product rule is: do not hard-code every domain as a permanent tool. For live data or one-off automation, the agent should inspect available tools/skills first. If no reliable tool exists, it should create a short temporary script under `.pixiu/tmp/` or run a shell command, parse the result, and write the requested artifact.
 
-Example: ask minicode to query Wuhan weather and save a Markdown report without relying on a built-in weather tool:
+Example: ask pixiu to query Wuhan weather and save a Markdown report without relying on a built-in weather tool:
 
 ```bash
-MINICODE_API_KEY=... minicode run --yes \
+PIXIU_API_KEY=... pixiu run --yes \
   "请在线查询武汉 2026-06-05 的天气，并整理到 docs/wuhan-weather.md。
-   如果没有内置天气工具，请用 shell 创建 .minicode/tmp/wuhan-weather.ts 临时脚本，
+   如果没有内置天气工具，请用 shell 创建 .pixiu/tmp/wuhan-weather.ts 临时脚本，
    调用公开天气 API 或网页数据，解析结构化结果，然后用 write 写入 Markdown。
    文件里包含地点、日期、天气概况、最高/最低温、降水概率、风力、数据来源 URL 和访问时间。"
 ```
@@ -145,7 +145,7 @@ Add a durable tool only when the workflow is common enough to deserve a stable i
 
 Local skills are discovered from:
 
-- `.minicode/skills/**/SKILL.md`
+- `.pixiu/skills/**/SKILL.md`
 - `.opencode/skills/**/SKILL.md`
 - `~/.claude/skills/**/SKILL.md`
 - `~/.agents/skills/**/SKILL.md`
@@ -153,47 +153,47 @@ Local skills are discovered from:
 Commands:
 
 ```bash
-minicode skill init weather --description "Weather lookup workflow"
-minicode skill list
-minicode skill list --json
-minicode skill show <name>
-minicode skill search "react"
-minicode skill search --remote "react"
-minicode skill path list
-minicode skill path add ./my-skills
-minicode skill path remove ./my-skills
-minicode skill doctor
-minicode skill install <remote-id> --yes
+pixiu skill init weather --description "Weather lookup workflow"
+pixiu skill list
+pixiu skill list --json
+pixiu skill show <name>
+pixiu skill search "react"
+pixiu skill search --remote "react"
+pixiu skill path list
+pixiu skill path add ./my-skills
+pixiu skill path remove ./my-skills
+pixiu skill doctor
+pixiu skill install <remote-id> --yes
 ```
 
-`skill init` creates a local `SKILL.md` under the configured install directory, which defaults to `.minicode/skills`. Use `skill path add/remove` to configure additional project-local skill roots in `minicode.jsonc`.
+`skill init` creates a local `SKILL.md` under the configured install directory, which defaults to `.pixiu/skills`. Use `skill path add/remove` to configure additional project-local skill roots in `pixiu.jsonc`.
 
 SkillHub Skills API requires a SkillHub API key:
 
 ```bash
-SKILLHUB_API_KEY=... minicode skill search --remote "react"
+SKILLHUB_API_KEY=... pixiu skill search --remote "react"
 ```
 
-Remote installs are review-first. Running `minicode skill install <remote-id>` prints the target directory and planned file list, then exits until you re-run with `--yes`. Confirmed installs write `.source.json` beside `SKILL.md`; it records the remote id/source/version, install time, target directory, and SHA-256 digests for installed files.
+Remote installs are review-first. Running `pixiu skill install <remote-id>` prints the target directory and planned file list, then exits until you re-run with `--yes`. Confirmed installs write `.source.json` beside `SKILL.md`; it records the remote id/source/version, install time, target directory, and SHA-256 digests for installed files.
 
 ## MCP
 
 ```bash
-minicode mcp add stdio local-tools -- node ./mcp-server.js
-minicode mcp add stdio local-tools --timeout-ms 1000 --env FOO=bar -- node ./mcp-server.js
-minicode mcp add http remote-tools http://127.0.0.1:9876/mcp
-minicode mcp add http remote-tools https://example.com/mcp --header Authorization="Bearer token"
-minicode mcp list
-minicode mcp list --json
-minicode mcp test <name>
-minicode mcp test <name> --json
-minicode mcp doctor
-minicode mcp doctor --json
-minicode mcp disable <name>
-minicode mcp enable <name>
-minicode mcp remove <name>
+pixiu mcp add stdio local-tools -- node ./mcp-server.js
+pixiu mcp add stdio local-tools --timeout-ms 1000 --env FOO=bar -- node ./mcp-server.js
+pixiu mcp add http remote-tools http://127.0.0.1:9876/mcp
+pixiu mcp add http remote-tools https://example.com/mcp --header Authorization="Bearer token"
+pixiu mcp list
+pixiu mcp list --json
+pixiu mcp test <name>
+pixiu mcp test <name> --json
+pixiu mcp doctor
+pixiu mcp doctor --json
+pixiu mcp disable <name>
+pixiu mcp enable <name>
+pixiu mcp remove <name>
 ```
 
-Use MCP for durable external capabilities that should not live in the minicode core. `mcp list` reports each configured server as `connected`, `failed`, or `disabled` with transport, tool count, and a short error summary.
+Use MCP for durable external capabilities that should not live in the pixiu core. `mcp list` reports each configured server as `connected`, `failed`, or `disabled` with transport, tool count, and a short error summary.
 
-`mcp add` writes to the project `minicode.jsonc`. Existing server names are protected by default; re-run with `--yes` when you intentionally want to overwrite a server config. `mcp doctor` performs the same status inspection as `mcp list`, then returns a non-zero exit code when any configured server fails.
+`mcp add` writes to the project `pixiu.jsonc`. Existing server names are protected by default; re-run with `--yes` when you intentionally want to overwrite a server config. `mcp doctor` performs the same status inspection as `mcp list`, then returns a non-zero exit code when any configured server fails.

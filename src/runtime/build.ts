@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises"
 import { isAbsolute, join, relative, resolve } from "node:path"
 
-import type { MinicodeConfig } from "../config/defaults"
+import type { PixiuConfig } from "../config/defaults"
 import { loadConfig, resolveProviderConfig } from "../config/loader"
 import { OpenAICompatibleClient } from "../llm/openai"
 import type { LLMClient } from "../llm/types"
@@ -10,6 +10,7 @@ import type { ToolContext } from "../tools/types"
 import { JsonlSessionStore } from "../session/jsonl"
 import { ToolRegistry } from "../tools/registry"
 import { createBuiltinTools } from "../tools/builtin"
+import { createWebTools } from "../tools/web"
 import { normalizePermissionRules, StaticPermissionManager } from "../permission/evaluator"
 import type { PermissionDecision, PermissionMode, PermissionRequest } from "../permission/types"
 import { PathGuard } from "../sandbox/path"
@@ -19,11 +20,11 @@ import { createSkillHubTools } from "../skillhub/tools"
 import { AgentRunner } from "../agent/runner"
 import { createMCPClient } from "../mcp/status"
 import { mcpToolsToDefinitions } from "../mcp/tools"
-import { MinicodeError } from "../shared/errors"
+import { PixiuError } from "../shared/errors"
 
 export type RuntimeOptions = {
   cwd?: string
-  config?: MinicodeConfig
+  config?: PixiuConfig
   yes?: boolean
   permissionMode?: PermissionMode
   interactivePermissions?: boolean
@@ -35,7 +36,7 @@ export type RuntimeOptions = {
 
 type RuntimeBase = {
   cwd: string
-  config: MinicodeConfig
+  config: PixiuConfig
   sessions: JsonlSessionStore
   tools: ToolRegistry
   skills: SkillLoader
@@ -66,10 +67,11 @@ export async function buildRuntime(options: RuntimeOptions = {}): Promise<Runtim
     },
   )
   const pathGuard = new PathGuard({ workspaceRoot: cwd, workspaceOnly: config.sandbox.workspaceOnly })
-  const sessions = new JsonlSessionStore(join(cwd, ".minicode/state/sessions"))
+  const sessions = new JsonlSessionStore(join(cwd, ".pixiu/state/sessions"))
   const skills = new SkillLoader(config.skills.paths.map((path) => (path.startsWith("~") ? path : join(cwd, path))))
   const tools = new ToolRegistry()
     .registerMany(createBuiltinTools())
+    .registerMany(createWebTools())
     .registerMany(createSkillTools(skills))
     .registerMany(createSkillHubTools(config.skillhub, cwd))
   const mcpClients: ReturnType<typeof createMCPClient>[] = []
@@ -151,7 +153,7 @@ function createLLM(options: {
   provider: ReturnType<typeof resolveProviderConfig>
 }) {
   if (!options.provider.apiKey) {
-    throw new MinicodeError(
+    throw new PixiuError(
       "No provider API key configured. Set the provider apiKeyEnv environment variable before running the agent.",
       { code: "PROVIDER_API_KEY_MISSING" },
     )

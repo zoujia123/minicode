@@ -27,7 +27,7 @@ async function context(root: string, autoApprove = true) {
 
 describe("tool registry and builtins", () => {
   test("read tool returns clear file content", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-tools-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-"))
     await writeFile(join(root, "note.txt"), "hello world", "utf8")
     const registry = new ToolRegistry().registerMany(createBuiltinTools())
 
@@ -37,7 +37,7 @@ describe("tool registry and builtins", () => {
   })
 
   test("invalid input returns model-correctable error", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-tools-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-"))
     const registry = new ToolRegistry().registerMany(createBuiltinTools())
 
     const result = await registry.execute("read", {}, await context(root))
@@ -46,7 +46,7 @@ describe("tool registry and builtins", () => {
   })
 
   test("write is denied without auto approval", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-tools-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-"))
     const registry = new ToolRegistry().registerMany(createBuiltinTools())
 
     const result = await registry.execute("write", { path: "a.txt", content: "x" }, await context(root, false))
@@ -57,8 +57,8 @@ describe("tool registry and builtins", () => {
   })
 
   test("outside workspace paths trigger permission", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-tools-"))
-    const outside = join(tmpdir(), "minicode-outside.txt")
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-"))
+    const outside = join(tmpdir(), "pixiu-outside.txt")
     await writeFile(outside, "secret", "utf8")
     const registry = new ToolRegistry().registerMany(createBuiltinTools())
 
@@ -68,7 +68,7 @@ describe("tool registry and builtins", () => {
   })
 
   test("shell audit metadata includes risk, permission, cwd, duration, and output sizes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-tools-shell-audit-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-shell-audit-"))
     const registry = new ToolRegistry().registerMany(createBuiltinTools())
 
     const result = await registry.execute("shell", { command: "printf hello" }, await context(root))
@@ -90,7 +90,7 @@ describe("tool registry and builtins", () => {
   })
 
   test("shell denies obvious writes outside the workspace", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-tools-shell-outside-"))
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-shell-outside-"))
     const registry = new ToolRegistry().registerMany(createBuiltinTools())
 
     const result = await registry.execute("shell", { command: "printf bad > ../outside.txt" }, await context(root))
@@ -100,34 +100,34 @@ describe("tool registry and builtins", () => {
     expect(result.metadata?.outsideWorkspaceTarget).toBe("../outside.txt")
   })
 
-  test("shell can write temporary files under .minicode/tmp", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-tools-shell-tmp-"))
+  test("shell can write temporary files under .pixiu/tmp", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-shell-tmp-"))
     const registry = new ToolRegistry().registerMany(createBuiltinTools())
 
     const result = await registry.execute(
       "shell",
-      { command: "mkdir -p .minicode/tmp && printf tmp-ok > .minicode/tmp/a.txt" },
+      { command: "mkdir -p .pixiu/tmp && printf tmp-ok > .pixiu/tmp/a.txt" },
       await context(root),
     )
 
     expect(result.ok).toBe(true)
-    expect(await readFile(join(root, ".minicode/tmp/a.txt"), "utf8")).toBe("tmp-ok")
+    expect(await readFile(join(root, ".pixiu/tmp/a.txt"), "utf8")).toBe("tmp-ok")
   })
 
   test("shell env allowlist does not expose provider API keys", async () => {
-    const root = await mkdtemp(join(tmpdir(), "minicode-tools-shell-env-"))
-    const previous = process.env.MINICODE_API_KEY
-    process.env.MINICODE_API_KEY = "sk-test-secret-1234567890"
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-shell-env-"))
+    const previous = process.env.PIXIU_API_KEY
+    process.env.PIXIU_API_KEY = "sk-test-secret-1234567890"
     try {
       const registry = new ToolRegistry().registerMany(createBuiltinTools())
-      const result = await registry.execute("shell", { command: "env | grep MINICODE_API_KEY || true" }, await context(root))
+      const result = await registry.execute("shell", { command: "env | grep PIXIU_API_KEY || true" }, await context(root))
 
       expect(result.ok).toBe(true)
-      expect(result.content).not.toContain("MINICODE_API_KEY")
+      expect(result.content).not.toContain("PIXIU_API_KEY")
       expect(result.content).not.toContain("sk-test-secret")
     } finally {
-      if (previous === undefined) delete process.env.MINICODE_API_KEY
-      else process.env.MINICODE_API_KEY = previous
+      if (previous === undefined) delete process.env.PIXIU_API_KEY
+      else process.env.PIXIU_API_KEY = previous
     }
   })
 })

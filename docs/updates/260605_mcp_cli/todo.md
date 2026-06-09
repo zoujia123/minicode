@@ -2,19 +2,19 @@
 
 ## Goal
 
-Make MCP a first-class CLI-managed capability surface. Users should be able to add, inspect, disable, re-enable, and remove MCP servers without hand-editing `minicode.jsonc`.
+Make MCP a first-class CLI-managed capability surface. Users should be able to add, inspect, disable, re-enable, and remove MCP servers without hand-editing `pixiu.jsonc`.
 
-This follows the useful part of opencode's MCP CLI direction while staying aligned with minicode's current runtime. Harness remains test infrastructure, not a user-facing configuration area.
+This follows the useful part of opencode's MCP CLI direction while staying aligned with pixiu's current runtime. Harness remains test infrastructure, not a user-facing configuration area.
 
 ## First Slice: Configuration Lifecycle
 
 - [x] Add CLI commands
-  - [x] `minicode mcp add stdio <name> -- <command> [args...]`
-  - [x] `minicode mcp add http <name> <url>`
-  - [x] `minicode mcp remove <name>`
-  - [x] `minicode mcp enable <name>`
-  - [x] `minicode mcp disable <name>`
-  - [x] `minicode mcp doctor [--json]`
+  - [x] `pixiu mcp add stdio <name> -- <command> [args...]`
+  - [x] `pixiu mcp add http <name> <url>`
+  - [x] `pixiu mcp remove <name>`
+  - [x] `pixiu mcp enable <name>`
+  - [x] `pixiu mcp disable <name>`
+  - [x] `pixiu mcp doctor [--json]`
 - [x] Keep commands automation-friendly
   - [x] Support `--json` for config mutation commands.
   - [x] Avoid accidental overwrite unless `--yes` is provided.
@@ -30,7 +30,7 @@ This follows the useful part of opencode's MCP CLI direction while staying align
   - [x] Add stdio config through CLI.
   - [x] Add HTTP config through CLI.
   - [x] Reject duplicate add without `--yes`.
-  - [x] Enable, disable, remove update `minicode.jsonc`.
+  - [x] Enable, disable, remove update `pixiu.jsonc`.
   - [x] Doctor reports connected, failed, disabled counts.
 
 ## Non-goals
