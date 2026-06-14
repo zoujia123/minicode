@@ -665,10 +665,11 @@ async function askChatInput(
 async function createChatInput(): Promise<ChatInput> {
   if (process.stdin.isTTY) {
     let history: string[] = []
-    let closed = false
-    let rl: ReturnType<typeof createInterface>
+    let closed = true
+    let rl: ReturnType<typeof createInterface> | undefined
     let pendingQuestion: AbortController | undefined
     const rememberHistory = () => {
+      if (!rl) return
       const value = (rl as ReturnType<typeof createInterface> & { history?: string[] }).history
       if (Array.isArray(value)) history = [...value]
     }
@@ -686,50 +687,51 @@ async function createChatInput(): Promise<ChatInput> {
       })
       return next
     }
-    rl = createReadline()
+    const ensureReadline = () => {
+      if (!rl || closed) rl = createReadline()
+      return rl
+    }
+    const closeReadline = () => {
+      if (!rl || closed) return
+      rememberHistory()
+      rl.close()
+      rl = undefined
+      closed = true
+    }
     return {
       isTTY: true,
       echoesUserInput: true,
       writesPrompt: true,
       async question(prompt: string, options?: ChatQuestionOptions) {
-        if (closed) rl = createReadline()
         const controller = new AbortController()
         pendingQuestion = controller
         try {
           if (canUseRawSlashCompletion(options)) {
-            rememberHistory()
-            if (!closed) rl.close()
+            closeReadline()
             const line = await askSlashCompletingLine(prompt, options.slashCommands, options.terminal, history, controller.signal)
             if (line !== undefined && line !== CHAT_CTRL_C) history = rememberChatHistory(history, line)
-            if (closed) rl = createReadline()
             return line
           }
-          return await askReadline(rl, prompt, controller.signal)
+          return await askReadline(ensureReadline(), prompt, controller.signal)
         } finally {
           if (pendingQuestion === controller) pendingQuestion = undefined
         }
       },
       prompt() {
-        if (closed) rl = createReadline()
-        rl.prompt()
+        ensureReadline().prompt()
       },
       interrupt() {
         pendingQuestion?.abort()
       },
       suspend() {
-        if (closed) return
-        rememberHistory()
-        rl.close()
+        closeReadline()
       },
       resume() {
-        if (closed) rl = createReadline()
-        else rl.resume()
+        if (rl && !closed) rl.resume()
       },
       close() {
         pendingQuestion?.abort()
-        if (closed) return
-        rememberHistory()
-        rl.close()
+        closeReadline()
       },
     }
   }
@@ -888,6 +890,7 @@ async function askSlashCompletingLine(
       stdin.off("data", onData)
       signal?.removeEventListener("abort", onAbort)
       stdin.setRawMode?.(wasRaw)
+      if (!wasRaw) stdin.pause()
     }
     const choose = (value: string | undefined) => {
       if (resolved) return
@@ -1406,6 +1409,7 @@ async function selectPermissionChoice(
       stdin.off("data", onData)
       erase()
       stdin.setRawMode?.(wasRaw)
+      if (!wasRaw) stdin.pause()
       input.resume?.()
       resolve(answer)
     }
