@@ -33,6 +33,7 @@ import { approximateTokens, compactSessionMessages } from "../agent/compaction"
 import { collectSessionEvidence, type SessionEvidence } from "../session/evidence"
 import type { JsonObject } from "../shared/json"
 import type { PermissionDecision, PermissionMode, PermissionRequest } from "../permission/types"
+import type { SkillLoader } from "../skills/loader"
 
 const VERSION = "0.0.0"
 const CHAT_CTRL_C = "__PIXIU_CTRL_C__"
@@ -286,10 +287,28 @@ async function doctor(args: string[] = []): Promise<CliResult> {
     ["skills", skillDiagnostics.length ? "warn" : "ok", `${runtime.config.skills.paths.length} paths, ${skillDiagnostics.length} diagnostics`],
     ["mcp", mcpStatuses.some((server) => server.status === "failed") ? "warn" : "ok", `${mcpStatuses.length} configured`],
   ]
-  if (json) return { exitCode: 0, output: JSON.stringify({ checks: checks.map(([check, status, detail]) => ({ check, status, detail })) }, null, 2) }
+  if (json) {
+    return {
+      exitCode: 0,
+      output: JSON.stringify(
+        {
+          checks: checks.map(([check, status, detail]) => ({ check, status, detail })),
+          skillDiagnostics,
+        },
+        null,
+        2,
+      ),
+    }
+  }
   return {
     exitCode: 0,
-    output: ["pixiu doctor", table([["check", "status", "detail"], ...checks], { header: true })].join("\n"),
+    output: [
+      "pixiu doctor",
+      table([["check", "status", "detail"], ...checks], { header: true }),
+      ...(skillDiagnostics.length
+        ? ["", "skill diagnostics:", ...skillDiagnostics.map((item) => `- ${item.code}: ${item.message}`)]
+        : []),
+    ].join("\n"),
   }
 }
 
@@ -1708,7 +1727,7 @@ async function skillCommand(args: string[]): Promise<CliResult> {
   if (subcommand === "show") {
     const skill = await runtime.skills.load(stripFlags(rest, ["--json"]).join(" "))
     if (json) return { exitCode: 0, output: JSON.stringify(skill, null, 2) }
-    return { exitCode: 0, output: skill.content }
+    return { exitCode: 0, output: formatSkillShow(skill) }
   }
   if (subcommand === "search") {
     const remote = has(rest, "--remote")
@@ -1732,11 +1751,15 @@ async function skillCommand(args: string[]): Promise<CliResult> {
     const diagnostics = await runtime.skills.diagnostics()
     const result = {
       paths: runtime.config.skills.paths,
+      precedence: runtime.config.skills.paths.map((path, index) => ({ index, path })),
       skills: skills.map((skill) => ({
         name: skill.name,
         description: skill.description,
         path: skill.source.relativePath,
+        rootIndex: skill.source.rootIndex,
+        root: skill.source.root,
         duplicates: skill.duplicates?.length ?? 0,
+        duplicatePaths: skill.duplicates?.map((item) => item.skillPath) ?? [],
       })),
       diagnostics,
     }
@@ -1744,8 +1767,16 @@ async function skillCommand(args: string[]): Promise<CliResult> {
     const lines = [
       "skill doctor",
       `paths: ${runtime.config.skills.paths.join(", ") || "(none)"}`,
+      "precedence:",
+      ...runtime.config.skills.paths.map((path, index) => `- ${index + 1}. ${path}`),
       `skills: ${skills.length}`,
       `diagnostics: ${diagnostics.length}`,
+      ...skills
+        .filter((skill) => skill.duplicates?.length)
+        .flatMap((skill) => [
+          `duplicates for ${skill.name}: using ${skill.skillPath}`,
+          ...(skill.duplicates ?? []).map((item) => `- ignored ${item.skillPath} (root #${item.source.rootIndex})`),
+        ]),
       ...diagnostics.map((item) => `- ${item.code}: ${item.message}`),
     ]
     return { exitCode: diagnostics.length ? 1 : 0, output: lines.join("\n") }
@@ -2207,6 +2238,38 @@ function formatSkillList(skills: Array<{ name: string; description: string; sour
   return table([["skill", "description", "source"], ...skills.map((skill) => [skill.name, skill.description, skill.source.relativePath])], {
     header: true,
   })
+}
+
+function formatSkillShow(skill: Awaited<ReturnType<SkillLoader["load"]>>) {
+  const contract = skill.contract
+  const contractLines = contract
+    ? [
+        contract.version ? `version: ${contract.version}` : undefined,
+        contract.risk ? `risk: ${contract.risk}` : undefined,
+        contract.triggers?.length ? `triggers: ${contract.triggers.join(", ")}` : undefined,
+        contract.when_to_use ? `when_to_use: ${contract.when_to_use}` : undefined,
+        contract.when_not_to_use ? `when_not_to_use: ${contract.when_not_to_use}` : undefined,
+        contract.required_tools?.length ? `required_tools: ${contract.required_tools.join(", ")}` : undefined,
+        contract.dependencies?.length ? `dependencies: ${contract.dependencies.join(", ")}` : undefined,
+        contract.inputs ? `inputs: ${contract.inputs}` : undefined,
+        contract.outputs ? `outputs: ${contract.outputs}` : undefined,
+        contract.quality_checks?.length ? `quality_checks: ${contract.quality_checks.join("; ")}` : undefined,
+      ].filter((line): line is string => Boolean(line))
+    : []
+  return [
+    `skill: ${skill.name}`,
+    `description: ${skill.description}`,
+    `source: ${skill.source.relativePath}`,
+    `path: ${skill.skillPath}`,
+    contractLines.length ? ["contract:", ...contractLines.map((line) => `- ${line}`)].join("\n") : undefined,
+    skill.files.length
+      ? ["reference files:", ...skill.files.map((file) => `- ${file.path} (${file.size} bytes)`)].join("\n")
+      : "reference files: none",
+    "instructions:",
+    skill.content,
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n\n")
 }
 
 function formatMCPStatusTable(statuses: Awaited<ReturnType<typeof inspectMCPServers>>) {

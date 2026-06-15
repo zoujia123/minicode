@@ -1,7 +1,7 @@
 export type LogLevel = "info" | "warn" | "error"
 
 function write(level: LogLevel, message: string) {
-  const stream = level === "error" ? process.stderr : process.stdout
+  const stream = level === "info" ? process.stdout : process.stderr
   stream.write(message.endsWith("\n") ? message : `${message}\n`)
 }
 
@@ -16,4 +16,3 @@ export const logger = {
     write("error", message)
   },
 }
-

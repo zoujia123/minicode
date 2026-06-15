@@ -251,7 +251,7 @@ async function writeTestConfig(projectDir: string, baseURL: string) {
       default: {
         description: "Default test agent.",
         systemPrompt: "You are pixiu under test. Follow the completion protocol exactly.",
-        tools: ["read", "grep", "glob", "shell", "write", "edit", "patch", "todo", "skill"],
+        tools: ["read", "grep", "glob", "shell", "write", "edit", "patch", "todo", "skill_search", "skill"],
         maxSteps: 8,
       },
     },
@@ -263,6 +263,7 @@ async function writeTestConfig(projectDir: string, baseURL: string) {
       write: "ask",
       edit: "ask",
       patch: "ask",
+      skill_search: "allow",
     },
     skills: {
       paths: [".pixiu/skills"],

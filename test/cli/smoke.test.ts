@@ -28,9 +28,11 @@ describe("pixiu CLI smoke subprocesses", () => {
 
       const doctorJson = await exec(["doctor", "--json"])
       expectExit(doctorJson, 0, "doctor --json")
-      expect(JSON.parse(doctorJson.stdout).checks).toEqual(
+      const parsedDoctor = JSON.parse(doctorJson.stdout)
+      expect(parsedDoctor.checks).toEqual(
         expect.arrayContaining([expect.objectContaining({ check: "provider", status: "ok" })]),
       )
+      expect(parsedDoctor.skillDiagnostics).toEqual([])
 
       const setConfig = await exec(["config", "set", "sandbox.shellTimeoutMs", "7000"])
       expectExit(setConfig, 0, "config set")

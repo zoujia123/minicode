@@ -189,6 +189,8 @@ function formatToolCall(name: string, input: JsonObject, terminal: Terminal) {
       return label("todo")
     case "skill":
       return `${label("skill")} ${quote(stringValue(input, "name"))}${stringValue(input, "path") ? ` ${quote(stringValue(input, "path"))}` : ""}`
+    case "skill_search":
+      return `${label("skill search")} ${quote(stringValue(input, "query"))}`
     case "skillhub_search":
       return `${label("skillhub search")} ${quote(stringValue(input, "query"))}`
     case "skillhub_install":
@@ -217,6 +219,7 @@ function formatCodeBuddyToolCall(name: string, input: JsonObject, terminal: Term
   if (name === "edit") return call("Edit", stringValue(input, "path") || "(missing path)")
   if (name === "patch") return call("Patch", stringValue(input, "path") || "(missing path)")
   if (name === "skill") return call("Skill", stringValue(input, "name") || "(missing name)")
+  if (name === "skill_search") return call("SkillSearch", stringValue(input, "query") || "(empty query)")
   if (lower.includes("fetch")) return call("Fetch", stringValue(input, "url") || stringValue(input, "path") || inputSummary(input))
   if (lower.includes("search")) return call("Search", stringValue(input, "query") || inputSummary(input))
   return call(titleCaseToolName(name), inputSummary(input).replace(/^\s*\[/, "").replace(/\]\s*$/, ""))

@@ -91,6 +91,39 @@ describe("scenario harness", () => {
     })
   })
 
+  test("lets the agent retrieve local skills before loading one", async () => {
+    await withPixiuFixture(async ({ llm, projectDir, run }) => {
+      await mkdir(join(projectDir, ".pixiu", "skills", "react-ui"), { recursive: true })
+      await writeFile(
+        join(projectDir, ".pixiu", "skills", "react-ui", "SKILL.md"),
+        [
+          "---",
+          "name: react-ui",
+          "description: Build polished React interfaces",
+          "triggers: react, jsx, components",
+          "risk: low",
+          "---",
+          "Use React component patterns.",
+        ].join("\n"),
+        "utf8",
+      )
+
+      llm.tool("skill_search", { query: "components" })
+      llm.tool("skill", { name: "react-ui" }, { match: requestHasToolResult("skill_search") })
+      llm.text("FINAL: 已加载 react-ui skill", { match: requestHasToolResult("skill") })
+
+      const result = await run("请找一个适合组件工作的 skill 并使用它", { yes: true })
+      expectExit(result, 0, "skill_search scenario")
+      expect(result.stdout).toContain("tool skill search \"components\"")
+      expect(result.stdout).toContain("tool skill \"react-ui\"")
+      expect(result.stdout).toContain("已加载 react-ui skill")
+
+      const firstRequest = llm.inputs()[0]
+      const tools = Array.isArray(firstRequest?.tools) ? firstRequest.tools.map((tool: any) => tool.function?.name) : []
+      expect(tools).toContain("skill_search")
+    })
+  })
+
   test("surfaces provider stream parse errors without hanging", async () => {
     await runScenario({
       name: "stream parse error",

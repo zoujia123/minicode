@@ -13,6 +13,7 @@ describe("skill CLI", () => {
         "---\nname: demo\ndescription: TypeScript demo skill\n---\nUse TypeScript patterns.",
         "utf8",
       )
+      await writeFile(join(projectDir, ".pixiu", "skills", "demo", "guide.md"), "Guide", "utf8")
 
       const list = await exec(["skill", "list"])
       expectExit(list, 0, "skill list")
@@ -31,7 +32,42 @@ describe("skill CLI", () => {
 
       const show = await exec(["skill", "show", "demo"])
       expectExit(show, 0, "skill show")
+      expect(show.stdout).toContain("skill: demo")
+      expect(show.stdout).toContain("source: demo/SKILL.md")
+      expect(show.stdout).toContain("reference files:")
+      expect(show.stdout).toContain("guide.md")
       expect(show.stdout).toContain("Use TypeScript patterns.")
+    })
+  })
+
+  test("shows optional skill contract metadata", async () => {
+    await withPixiuFixture(async ({ projectDir, exec }) => {
+      await mkdir(join(projectDir, ".pixiu", "skills", "demo"), { recursive: true })
+      await writeFile(
+        join(projectDir, ".pixiu", "skills", "demo", "SKILL.md"),
+        [
+          "---",
+          "name: demo",
+          "description: Contract demo skill",
+          "triggers: contract, cli",
+          "when_to_use: Use when checking CLI contract output.",
+          "required_tools: read, grep",
+          "risk: low",
+          "---",
+          "Use contract metadata.",
+        ].join("\n"),
+        "utf8",
+      )
+
+      const show = await exec(["skill", "show", "demo"])
+      expectExit(show, 0, "skill show contract")
+      expect(show.stdout).toContain("contract:")
+      expect(show.stdout).toContain("triggers: contract, cli")
+      expect(show.stdout).toContain("required_tools: read, grep")
+
+      const search = await exec(["skill", "search", "contract", "--json"])
+      expectExit(search, 0, "skill search contract")
+      expect(JSON.parse(search.stdout).skills[0].contract.triggers).toEqual(["contract", "cli"])
     })
   })
 
@@ -144,6 +180,28 @@ describe("skill CLI", () => {
       expectExit(result, 1, "skill doctor")
       const parsed = JSON.parse(result.stdout)
       expect(parsed.diagnostics[0].code).toBe("SKILL_INVALID")
+      expect(parsed.precedence[0]).toMatchObject({ index: 0, path: ".pixiu/skills" })
+    })
+  })
+
+  test("doctor explains duplicate precedence", async () => {
+    await withPixiuFixture(async ({ projectDir, exec }) => {
+      await mkdir(join(projectDir, ".pixiu", "skills", "demo"), { recursive: true })
+      await mkdir(join(projectDir, "other-skills", "demo"), { recursive: true })
+      await writeFile(join(projectDir, ".pixiu", "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: First\n---\nbody", "utf8")
+      await writeFile(join(projectDir, "other-skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: Second\n---\nbody", "utf8")
+
+      const configPath = join(projectDir, "pixiu.jsonc")
+      const config = JSON.parse(await readFile(configPath, "utf8"))
+      config.skills.paths = [".pixiu/skills", "other-skills"]
+      await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8")
+
+      const result = await exec(["skill", "doctor"])
+      expectExit(result, 1, "skill doctor duplicates")
+      expect(result.stdout).toContain("precedence:")
+      expect(result.stdout).toContain("1. .pixiu/skills")
+      expect(result.stdout).toContain("duplicates for demo")
+      expect(result.stdout).toContain("ignored")
     })
   })
 })

@@ -43,6 +43,7 @@ describe("runtime build", () => {
 
     expect(runtime.runner).toBeUndefined()
     expect(runtime.tools.get("shell")).toBeTruthy()
+    expect(runtime.tools.get("skill_search")).toBeTruthy()
   })
 
   test("broken MCP servers do not hide built-in tools", async () => {

@@ -136,6 +136,7 @@ The default agent is intentionally small. Built-ins include:
 - `shell`
 - `write`, `edit`, `patch`
 - `todo`
+- `skill_search`
 - `skill`
 
 The important product rule is: do not hard-code every domain as a permanent tool. For live data or one-off automation, the agent should inspect available tools/skills first. If no reliable tool exists, it should create a short temporary script under `.pixiu/tmp/` or run a shell command, parse the result, and write the requested artifact.
@@ -156,7 +157,7 @@ Add a durable tool only when the workflow is common enough to deserve a stable i
 
 Local skills are discovered from:
 
-- `.pixiu/skills/**/SKILL.md`
+- `.pixiu/skills/**/SKILL.md` (highest default priority)
 - `.opencode/skills/**/SKILL.md`
 - `~/.claude/skills/**/SKILL.md`
 - `~/.agents/skills/**/SKILL.md`
@@ -178,6 +179,29 @@ pixiu skill install <remote-id> --yes
 ```
 
 `skill init` creates a local `SKILL.md` under the configured install directory, which defaults to `.pixiu/skills`. Use `skill path add/remove` to configure additional project-local skill roots in `pixiu.jsonc`.
+
+If duplicate skill names exist, the first discovered skill wins and later duplicates are ignored with diagnostics. Default precedence is project `.pixiu/skills`, project `.opencode/skills`, user `~/.claude/skills`, then user `~/.agents/skills`. Custom `skills.paths` entries are evaluated in order, and `SKILL.md` files within each root are sorted by path for deterministic behavior.
+
+Skills only require `name` and `description`. Optional frontmatter can make a skill easier to retrieve and review:
+
+```yaml
+triggers: react, jsx, components
+when_to_use: Use for polished React component work.
+when_not_to_use: Skip for backend-only changes.
+required_tools: read, edit, shell
+risk: medium
+version: 1.0.0
+dependencies: node, bun
+inputs: Existing UI code and desired behavior.
+outputs: Updated components and verification notes.
+quality_checks:
+  - run typecheck
+  - inspect responsive layout
+```
+
+When many local skills are installed, the default agent can use the local `skill_search` tool to retrieve compact candidates before loading a full `SKILL.md`. Remote SkillHub search remains explicit through `pixiu skill search --remote` and is not automatic.
+
+Reference files shown by `skill show` and the `skill` tool are filtered to keep the model-facing list useful. Dependency folders, generated output, hidden noise, common binary assets, and oversized files are skipped; `.source.json` provenance remains visible.
 
 SkillHub Skills API requires a SkillHub API key:
 

@@ -222,7 +222,7 @@ pixiu config set sandbox.shellTimeoutMs 30000
 
 Local Skills are discovered from:
 
-- `.pixiu/skills/**/SKILL.md`
+- `.pixiu/skills/**/SKILL.md` (highest default priority)
 - `.opencode/skills/**/SKILL.md`
 - `~/.claude/skills/**/SKILL.md`
 - `~/.agents/skills/**/SKILL.md`
@@ -241,6 +241,10 @@ pixiu skill install <remote-id> --yes
 ```
 
 Remote SkillHub search/install requires `SKILLHUB_API_KEY`.
+
+If two installed Skills use the same `name`, the first discovered source wins and later duplicates are reported by `pixiu skill doctor`. The configured `skills.paths` order controls root precedence; within one root, `SKILL.md` paths are sorted for deterministic loading.
+
+Each Skill only needs `name` and `description`, but optional frontmatter such as `triggers`, `when_to_use`, `when_not_to_use`, `required_tools`, `risk`, `version`, `dependencies`, `inputs`, `outputs`, and `quality_checks` can improve local search and review output. Reference files are listed conservatively: generated folders, dependency folders, binary assets, and oversized files are skipped.
 
 ## MCP
 

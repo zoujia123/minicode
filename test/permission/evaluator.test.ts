@@ -54,9 +54,11 @@ describe("permission evaluator", () => {
     )
 
     const read = await manager.check({ tool: "read", input: {}, cwd: "/" })
+    const skillSearch = await manager.check({ tool: "skill_search", input: {}, cwd: "/" })
     const write = await manager.check({ tool: "write", input: {}, cwd: "/" })
 
     expect(read.action).toBe("allow")
+    expect(skillSearch.action).toBe("allow")
     expect(write.action).toBe("deny")
     expect(write.reason).toContain("permission mode plan")
   })

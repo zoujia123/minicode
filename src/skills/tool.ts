@@ -1,11 +1,48 @@
 import type { ToolDefinition } from "../tools/types"
 import type { SkillLoader } from "./loader"
+import { logger } from "../runtime/logger"
+
+const SKILL_PROMPT_LIST_LIMIT = 20
 
 // creates the skill tool definition that can be registered to the agent runner. The tool uses the skill loader
 // to load the skill instructions and reference files when called by the agent.
 export function createSkillTools(loader: SkillLoader): ToolDefinition[] { // return an array of tool definitions.
   // [{tool1}, {tool2}, ...]
   return [
+    {
+      name: "skill_search",
+      description: "Search installed local skills and return compact candidates before loading one.",
+      risk: "low",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          limit: { type: "number", description: "Maximum number of skills to return." },
+        },
+        required: ["query"],
+      },
+      async execute(input) {
+        const query = typeof input.query === "string" ? input.query : ""
+        const limit = typeof input.limit === "number" ? input.limit : undefined
+        const skills = await loader.search(query, limit === undefined ? {} : { limit })
+        return {
+          ok: true,
+          content: skills.length ? skills.map(renderSkillSearchLine).join("\n") : "No matching local skills.",
+          data: skills.map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+            source: skill.source,
+            ...(skill.contract ? { contract: skill.contract } : {}),
+          })),
+          metadata: {
+            query,
+            count: skills.length,
+            skills: skills.map((skill) => skill.name),
+            kind: "search",
+          },
+        }
+      },
+    },
     {
       name: "skill",
       description: "Load a local SKILL.md by name and return its instructions.",
@@ -35,6 +72,7 @@ export function createSkillTools(loader: SkillLoader): ToolDefinition[] { // ret
             metadata: {
               name: skill.name,
               description: skill.description,
+              ...(skill.contract ? { contract: skill.contract } : {}),
               rootDir: skill.rootDir,
               skillPath: skill.skillPath,
               path,
@@ -47,11 +85,12 @@ export function createSkillTools(loader: SkillLoader): ToolDefinition[] { // ret
         return {
           ok: true,
           content: renderSkillResult(skill),
-          metadata: {
-            name: skill.name,
-            description: skill.description,
-            rootDir: skill.rootDir,
-            skillPath: skill.skillPath,
+            metadata: {
+              name: skill.name,
+              description: skill.description,
+              ...(skill.contract ? { contract: skill.contract } : {}),
+              rootDir: skill.rootDir,
+              skillPath: skill.skillPath,
             source: skill.source,
             files: skill.files.map((file) => file.path),
             duplicates: skill.duplicates?.map((item) => item.skillPath) ?? [],
@@ -67,11 +106,23 @@ export function createSkillTools(loader: SkillLoader): ToolDefinition[] { // ret
 // The agent can call the skill tool to load the full instructions when needed, and reference any files 
 // listed in the skill result through the skill tool as well.
 export async function renderSkillSystemPrompt(loader: SkillLoader) {
-  const skills = await loader.list().catch(() => [])
+  let skills
+  try {
+    skills = await loader.list()
+  } catch (error) {
+    logger.warn(`Skill discovery failed while rendering system prompt: ${error instanceof Error ? error.message : String(error)}`)
+    return ""
+  }
   if (!skills.length) return ""
+  if (skills.length > SKILL_PROMPT_LIST_LIMIT) {
+    return [
+      `Available skills: ${skills.length} installed local skills.`,
+      "Use the skill_search tool to retrieve candidate skills before calling the skill tool. Load the full SKILL.md only when needed.",
+    ].join("\n")
+  }
   return [
     "Available skills:",
-    ...skills.map((skill) => `- ${skill.name}: ${skill.description}`),
+    ...skills.map((skill) => `- ${skill.name}: ${skill.description}${skill.contract?.triggers?.length ? ` (triggers: ${skill.contract.triggers.join(", ")})` : ""}`),
     "Use the skill tool to load the full SKILL.md only when needed. If the skill result lists reference files, call the skill tool again with { name, path } to load one safely.",
   ].join("\n")
 }
@@ -84,10 +135,42 @@ function renderSkillResult(skill: Awaited<ReturnType<SkillLoader["load"]>>) {
   return [
     `Skill: ${skill.name}`,
     `Description: ${skill.description}`,
+    renderSkillContract(skill),
     skill.files.length
       ? ["Reference files available through the skill tool:", ...skill.files.map((file) => `- ${file.path} (${file.size} bytes)`)].join("\n")
       : "Reference files: none",
     "Instructions:",
     skill.content,
-  ].join("\n\n")
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+function renderSkillSearchLine(skill: Awaited<ReturnType<SkillLoader["list"]>>[number]) {
+  const contract = [
+    skill.contract?.triggers?.length ? `triggers=${skill.contract.triggers.join(", ")}` : "",
+    skill.contract?.risk ? `risk=${skill.contract.risk}` : "",
+    skill.contract?.required_tools?.length ? `tools=${skill.contract.required_tools.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("; ")
+  return `- ${skill.name}: ${skill.description} (${skill.source.relativePath})${contract ? ` [${contract}]` : ""}`
+}
+
+function renderSkillContract(skill: Awaited<ReturnType<SkillLoader["load"]>>) {
+  const contract = skill.contract
+  if (!contract) return ""
+  const lines = [
+    contract.version ? `Version: ${contract.version}` : "",
+    contract.risk ? `Risk: ${contract.risk}` : "",
+    contract.triggers?.length ? `Triggers: ${contract.triggers.join(", ")}` : "",
+    contract.when_to_use ? `When to use: ${contract.when_to_use}` : "",
+    contract.when_not_to_use ? `When not to use: ${contract.when_not_to_use}` : "",
+    contract.required_tools?.length ? `Required tools: ${contract.required_tools.join(", ")}` : "",
+    contract.dependencies?.length ? `Dependencies: ${contract.dependencies.join(", ")}` : "",
+    contract.inputs ? `Inputs: ${contract.inputs}` : "",
+    contract.outputs ? `Outputs: ${contract.outputs}` : "",
+    contract.quality_checks?.length ? `Quality checks: ${contract.quality_checks.join("; ")}` : "",
+  ].filter(Boolean)
+  return lines.length ? ["Contract:", ...lines].join("\n") : ""
 }

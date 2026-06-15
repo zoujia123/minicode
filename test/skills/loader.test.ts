@@ -55,6 +55,94 @@ describe("skill loader", () => {
     expect((await loader.search("python/SKILL")).map((skill) => skill.name)).toEqual(["scripts"])
   })
 
+  test("uses cached discovery until refresh or invalidate", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-cache-"))
+    await mkdir(join(root, "one"), { recursive: true })
+    await writeFile(join(root, "one", "SKILL.md"), "---\nname: one\ndescription: First skill\n---\nbody", "utf8")
+    const loader = new SkillLoader([root])
+
+    expect((await loader.list()).map((skill) => skill.name)).toEqual(["one"])
+
+    await mkdir(join(root, "two"), { recursive: true })
+    await writeFile(join(root, "two", "SKILL.md"), "---\nname: two\ndescription: Second skill\n---\nbody", "utf8")
+    expect((await loader.list()).map((skill) => skill.name)).toEqual(["one"])
+
+    await loader.refresh()
+    expect((await loader.list()).map((skill) => skill.name)).toEqual(["one", "two"])
+
+    await mkdir(join(root, "three"), { recursive: true })
+    await writeFile(join(root, "three", "SKILL.md"), "---\nname: three\ndescription: Third skill\n---\nbody", "utf8")
+    loader.invalidate()
+    expect((await loader.list()).map((skill) => skill.name)).toEqual(["one", "three", "two"])
+  })
+
+  test("filters noisy reference files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-filter-"))
+    const skillRoot = join(root, "demo")
+    await mkdir(join(skillRoot, "references"), { recursive: true })
+    await mkdir(join(skillRoot, "node_modules", "pkg"), { recursive: true })
+    await mkdir(join(skillRoot, ".git"), { recursive: true })
+    await mkdir(join(skillRoot, "dist"), { recursive: true })
+    await writeFile(join(skillRoot, "SKILL.md"), "---\nname: demo\ndescription: Demo skill\n---\nbody", "utf8")
+    await writeFile(join(skillRoot, "references", "guide.md"), "guide", "utf8")
+    await writeFile(join(skillRoot, ".source.json"), "{}", "utf8")
+    await writeFile(join(skillRoot, "node_modules", "pkg", "index.md"), "dependency docs", "utf8")
+    await writeFile(join(skillRoot, ".git", "config"), "git config", "utf8")
+    await writeFile(join(skillRoot, "dist", "bundle.js"), "bundle", "utf8")
+    await writeFile(join(skillRoot, "image.png"), "not really png", "utf8")
+    await writeFile(join(skillRoot, "large.md"), "x".repeat(260_000), "utf8")
+
+    const files = (await new SkillLoader([root]).load("demo")).files.map((file) => file.path)
+    expect(files).toEqual([".source.json", "references/guide.md"])
+  })
+
+  test("parses optional contract metadata and ranks search matches", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-contract-"))
+    await mkdir(join(root, "react"), { recursive: true })
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(
+      join(root, "react", "SKILL.md"),
+      [
+        "---",
+        "name: react-ui",
+        "description: Build UI components",
+        "triggers:",
+        "  - components",
+        "  - jsx",
+        "when_to_use: Use for polished React interfaces.",
+        "required_tools: read, edit",
+        "risk: medium",
+        "quality_checks:",
+        "  - run typecheck",
+        "---",
+        "body",
+      ].join("\n"),
+      "utf8",
+    )
+    await writeFile(join(root, "docs", "SKILL.md"), "---\nname: docs\ndescription: Mention components in docs\n---\nbody", "utf8")
+    const loader = new SkillLoader([root])
+
+    const react = (await loader.list()).find((skill) => skill.name === "react-ui")
+    expect(react?.contract).toMatchObject({
+      triggers: ["components", "jsx"],
+      when_to_use: "Use for polished React interfaces.",
+      required_tools: ["read", "edit"],
+      risk: "medium",
+      quality_checks: ["run typecheck"],
+    })
+    expect((await loader.search("components")).map((skill) => skill.name)).toEqual(["react-ui", "docs"])
+  })
+
+  test("warns on malformed optional contract metadata without skipping skill", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-skills-contract-bad-"))
+    await mkdir(join(root, "demo"), { recursive: true })
+    await writeFile(join(root, "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo skill\nrisk: extreme\n---\nbody", "utf8")
+    const loader = new SkillLoader([root])
+
+    expect((await loader.list()).map((skill) => skill.name)).toEqual(["demo"])
+    expect((await loader.diagnostics())[0]?.code).toBe("SKILL_METADATA_INVALID")
+  })
+
   test("keeps deterministic first source and reports duplicate skills", async () => {
     const first = await mkdtemp(join(tmpdir(), "pixiu-skills-first-"))
     const second = await mkdtemp(join(tmpdir(), "pixiu-skills-second-"))

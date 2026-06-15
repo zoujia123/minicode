@@ -10,7 +10,7 @@
   "agents": {
     "default": {
       "description": "Default coding and research agent.",
-      "tools": ["read", "grep", "glob", "web_search", "web_fetch", "shell", "write", "edit", "patch", "todo", "skill"],
+      "tools": ["read", "grep", "glob", "web_search", "web_fetch", "shell", "write", "edit", "patch", "todo", "skill_search", "skill"],
       "maxSteps": 20
     }
   },
@@ -22,9 +22,12 @@
     "web_fetch": "ask",
     "shell": "ask",
     "edit": "ask",
-    "write": "ask"
+    "write": "ask",
+    "skill_search": "allow"
   },
   "skills": {
+    // Earlier roots win when duplicate skill names are discovered.
+    // Default precedence: project .pixiu/skills, project .opencode/skills, Claude user skills, shared agent user skills.
     "paths": [".pixiu/skills", ".opencode/skills", "~/.claude/skills", "~/.agents/skills"]
   },
   "skillhub": {
