@@ -17,6 +17,7 @@ describe("runCli", () => {
     expect(result.output).toContain("pixiu run [-c|--continue] <message>")
     expect(result.output).toContain("--permission-mode")
     expect(result.output).toContain("pixiu config set <key>")
+    expect(result.output).toContain("pixiu tools env status")
     expect(result.output).toContain("pixiu ui")
     expect(result.output).not.toContain("--mock")
     expect(result.output).not.toContain("connector")

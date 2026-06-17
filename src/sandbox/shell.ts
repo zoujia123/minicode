@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { resolve } from "node:path"
+import { delimiter, resolve } from "node:path"
 
 import { truncateText } from "../shared/text"
 import { isInside } from "./path"
@@ -9,6 +9,8 @@ export type ShellRunOptions = {
   timeoutMs: number
   outputMaxBytes: number
   envAllowlist: string[]
+  envPrependPath?: string[]
+  envOverrides?: Record<string, string>
   signal?: AbortSignal
 }
 
@@ -37,11 +39,19 @@ const NETWORK_COMMANDS = /\b(curl|wget|ssh|scp|rsync|nc|ncat|telnet|ftp|sftp|pin
 const PACKAGE_COMMANDS = /\b(npm|pnpm|yarn|bun|pip|pip3|uv|cargo|go|apt|apt-get|brew|conda|mamba)\s+(install|add|remove|update|upgrade|publish|run|x|exec)\b/
 const GIT_COMMANDS = /\bgit\s+(clone|pull|push|fetch|checkout|switch|reset|clean|merge|rebase|commit|tag|submodule)\b/
 
-export function buildAllowedEnv(allowlist: string[]) {
+export function buildAllowedEnv(allowlist: string[], options: { prependPath?: string[]; overrides?: Record<string, string> } = {}) {
   const env: Record<string, string> = {}
   for (const key of allowlist) {
     const value = process.env[key]
     if (value !== undefined) env[key] = value
+  }
+  for (const [key, value] of Object.entries(options.overrides ?? {})) {
+    env[key] = value
+  }
+  if (env.PATH !== undefined && options.prependPath?.length) {
+    const current = env.PATH.split(delimiter).filter(Boolean)
+    const next = [...options.prependPath.filter(Boolean), ...current]
+    env.PATH = [...new Set(next)].join(delimiter)
   }
   return env
 }
@@ -73,7 +83,10 @@ export function runShell(command: string, options: ShellRunOptions) {
     const child = spawn(command, {
       cwd: options.cwd,
       shell: true,
-      env: buildAllowedEnv(options.envAllowlist),
+      env: buildAllowedEnv(options.envAllowlist, {
+        ...(options.envPrependPath ? { prependPath: options.envPrependPath } : {}),
+        ...(options.envOverrides ? { overrides: options.envOverrides } : {}),
+      }),
       windowsHide: true,
     })
     let stdout = ""

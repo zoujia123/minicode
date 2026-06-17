@@ -21,6 +21,7 @@ import { AgentRunner } from "../agent/runner"
 import { createMCPClient } from "../mcp/status"
 import { mcpToolsToDefinitions } from "../mcp/tools"
 import { PixiuError } from "../shared/errors"
+import { installAgentReach, managedEnvPathPrepend } from "../tools/managed-env"
 
 export type RuntimeOptions = {
   cwd?: string
@@ -108,6 +109,8 @@ export async function buildRuntime(options: RuntimeOptions = {}): Promise<Runtim
     shellTimeoutMs: config.sandbox.shellTimeoutMs,
     outputMaxBytes: config.sandbox.outputMaxBytes,
     envAllowlist: config.sandbox.envAllowlist,
+    envPrependPath: [managedEnvPathPrepend(config)].filter((item): item is string => Boolean(item)),
+    ...(config.tools.managedEnv.enabled ? { envOverrides: { PYTHONNOUSERSITE: "1" } } : {}),
   }
   const createToolContext = (root: string): Omit<ToolContext, "sessionId"> => ({
     cwd: root,
@@ -130,6 +133,10 @@ export async function buildRuntime(options: RuntimeOptions = {}): Promise<Runtim
     toolNames: agentConfig.tools,
     maxSteps: agentConfig.maxSteps,
     compaction: config.compaction,
+    managedTools: {
+      autoInstall: config.tools.managedEnv.autoInstall,
+      installAgentReach: ({ cwd }: { cwd: string }) => installAgentReach(config, { cwd }),
+    },
     toolContext: createToolContext(cwd),
     toolContextForSession,
     ...(config.sandbox.mode === "workspace"

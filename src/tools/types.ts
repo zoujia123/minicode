@@ -21,6 +21,8 @@ export type ToolContext = {
     shellTimeoutMs: number
     outputMaxBytes: number
     envAllowlist: string[]
+    envPrependPath?: string[]
+    envOverrides?: Record<string, string>
   }
 }
 

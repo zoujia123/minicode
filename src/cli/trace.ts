@@ -1,4 +1,6 @@
 import type { AgentEvent } from "../agent/events"
+import { activityFromToolIntent, activityFromToolResult, updateActivityWithToolResult } from "../activity/format"
+import type { ActivityItem } from "../activity/types"
 import type { JsonObject, JsonValue } from "../shared/json"
 import { redactSecrets } from "../shared/redact"
 import type { TodoItem, TodoStatus } from "../todo/types"
@@ -10,6 +12,7 @@ type ActiveTool = {
   name: string
   input: JsonObject
   startedAt: number
+  activity?: ActivityItem
 }
 
 export type CliTraceRendererOptions = {
@@ -86,9 +89,15 @@ export class CliTraceRenderer {
 
   private toolCall(event: Extract<AgentEvent, { type: "tool_call" }>) {
     const input = objectValue(event.input)
-    this.activeTools.set(event.id, { name: event.name, input, startedAt: this.now() })
+    const activity = activityFromToolIntent({
+      toolCallId: event.id,
+      toolName: event.name,
+      input,
+    })
+    this.activeTools.set(event.id, { name: event.name, input, startedAt: this.now(), ...(activity ? { activity } : {}) })
     if (this.style === "codebuddy") {
-      this.writeTrace(`${this.terminal.blue("●")} ${formatCodeBuddyToolCall(event.name, input, this.terminal)}\n`)
+      this.writeTrace(`${this.terminal.blue("●")} ${formatCodeBuddyToolCall(event.name, input, this.terminal, activity)}\n`)
+      this.writeVerboseToolCall(event.name, input, activity)
       return
     }
     this.writeTrace(`${this.terminal.dim("tool")} ${formatToolCall(event.name, input, this.terminal)}\n`)
@@ -106,8 +115,18 @@ export class CliTraceRenderer {
         : formatToolResult(event, metadata, elapsedMs, this.terminal)
     if (this.style === "codebuddy") {
       this.writeTrace(`  ${this.terminal.gray("⎿")} ${line}\n`)
+      this.writeVerboseToolResult(metadata)
     } else {
       this.writeTrace(`  ${line}\n`)
+    }
+
+    const userActionDetails = formatUserActionDetails(event, metadata, this.terminal)
+    if (userActionDetails) {
+      for (const line of userActionDetails.split("\n")) {
+        const marker = this.style === "codebuddy" ? "  " : "|"
+        this.writeTrace(`  ${this.terminal.gray(marker)} ${line}\n`)
+      }
+      return
     }
 
     if (!event.ok || this.verbose) {
@@ -151,6 +170,25 @@ export class CliTraceRenderer {
 
   private write(text: string) {
     this.writeChunk(redactSecrets(text))
+  }
+
+  private writeVerboseToolCall(name: string, input: JsonObject, activity: ActivityItem | undefined) {
+    if (!this.verbose || name !== "shell") return
+    const command = stringValue(input, "command")
+    if (!command) return
+    const displayTitle = activity?.title ?? stringValue(input, "purpose")
+    if (!displayTitle || displayTitle !== command) {
+      this.writeTrace(`  ${this.terminal.gray("raw:")} ${oneLine(command, Math.max(24, Math.min(180, this.terminal.width - 8)))}\n`)
+    }
+  }
+
+  private writeVerboseToolResult(metadata: JsonObject) {
+    if (!this.verbose) return
+    const details = objectValue(metadata.details)
+    const exitCode = numberValue(metadata, "exitCode") ?? numberValue(details, "exitCode")
+    const timedOut = booleanValue(metadata, "timedOut") ?? booleanValue(details, "timedOut")
+    if (exitCode !== undefined) this.writeTrace(`  ${this.terminal.gray("exit:")} ${exitCode}\n`)
+    if (timedOut) this.writeTrace(`  ${this.terminal.gray("timeout:")} true\n`)
   }
 }
 
@@ -234,6 +272,8 @@ function formatToolCall(name: string, input: JsonObject, terminal: Terminal) {
       return label("todo")
     case "todowrite":
       return label("todowrite")
+    case "request_user_action":
+      return `${label("user action")} ${oneLine(stringValue(input, "title") || "(missing title)", targetWidth())}`
     case "skill":
       return `${label("skill")} ${quote(stringValue(input, "name"))}${stringValue(input, "path") ? ` ${quote(stringValue(input, "path"))}` : ""}`
     case "skill_search":
@@ -247,14 +287,15 @@ function formatToolCall(name: string, input: JsonObject, terminal: Terminal) {
   }
 }
 
-function formatCodeBuddyToolCall(name: string, input: JsonObject, terminal: Terminal) {
+function formatCodeBuddyToolCall(name: string, input: JsonObject, terminal: Terminal, activity?: ActivityItem) {
   const targetWidth = (reserved = 18) => Math.max(24, Math.min(180, terminal.width - reserved))
   const call = (label: string, value?: string) => {
     const suffix = value ? oneLine(value, targetWidth(label.length + 8)) : ""
     return `${terminal.blue(label)}(${suffix})`
   }
   const lower = name.toLowerCase()
-  if (name === "shell") return call("Bash", stringValue(input, "command") || "(empty command)")
+  if (activity?.title) return oneLine(activity.title, targetWidth(4))
+  if (name === "shell") return oneLine("运行命令", targetWidth(4))
   if (name === "read") return call("Read", stringValue(input, "path") || "(missing path)")
   if (name === "grep") {
     const query = stringValue(input, "query")
@@ -265,6 +306,7 @@ function formatCodeBuddyToolCall(name: string, input: JsonObject, terminal: Term
   if (name === "write") return call("Write", stringValue(input, "path") || "(missing path)")
   if (name === "edit") return call("Edit", stringValue(input, "path") || "(missing path)")
   if (name === "patch") return call("Patch", stringValue(input, "path") || "(missing path)")
+  if (name === "request_user_action") return oneLine(stringValue(input, "title") || "需要用户协作", targetWidth(4))
   if (name === "skill") return call("Skill", stringValue(input, "name") || "(missing name)")
   if (name === "skill_search") return call("SkillSearch", stringValue(input, "query") || "(empty query)")
   if (lower.includes("fetch")) return call("Fetch", stringValue(input, "url") || stringValue(input, "path") || inputSummary(input))
@@ -278,6 +320,11 @@ function formatToolResult(
   elapsedMs: number | undefined,
   terminal: Terminal,
 ) {
+  if (event.name === "request_user_action") {
+    const parts = [terminal.gray("wait"), "user-action"]
+    if (elapsedMs !== undefined) parts.push(formatDuration(elapsedMs))
+    return parts.join(" ")
+  }
   const parts = [event.ok ? terminal.green("ok") : terminal.red("fail")]
   const exitCode = numberValue(metadata, "exitCode")
   const timedOut = booleanValue(metadata, "timedOut")
@@ -301,6 +348,11 @@ function formatCodeBuddyToolResult(
   const prefix = ok ? terminal.green("✓") : terminal.red("✗")
   const elapsed = elapsedMs === undefined ? "" : ` · ${formatDuration(elapsedMs)}`
   const exitCode = numberValue(metadata, "exitCode")
+  if (event.name === "request_user_action") {
+    return `${terminal.gray("!")} 等待用户操作${elapsed}`
+  }
+  const semantic = codeBuddySemanticToolResult(event, metadata, active)
+  if (semantic) return `${prefix} ${oneLine(semantic, Math.max(24, Math.min(180, terminal.width - 10)))}${elapsed}`
   const path = stringValue(metadata, "path") || stringValue(input, "path")
   const url = stringValue(input, "url")
   const query = stringValue(input, "query")
@@ -323,10 +375,73 @@ function formatCodeBuddyToolResult(
   }
   if (event.name === "shell") {
     const exit = exitCode === undefined ? "" : ` exit=${exitCode}`
-    return ok ? `${prefix} Completed bash command${exit}${elapsed}` : `${prefix} Bash failed${exit}${elapsed}`
+    return ok ? `${prefix} 命令已完成${exit}${elapsed}` : `${prefix} 命令失败${exit}${elapsed}`
   }
   const fallback = formatToolResult(event, metadata, elapsedMs, terminal)
   return ok ? fallback : `${prefix} ${fallback}`
+}
+
+function codeBuddySemanticToolResult(
+  event: Extract<AgentEvent, { type: "tool_result" }>,
+  metadata: JsonObject,
+  active?: ActiveTool,
+) {
+  if (!shouldUseSemanticToolResult(event.name, metadata, active)) return undefined
+  const resultActivity = activityFromToolResult({
+    toolCallId: event.id,
+    toolName: event.name,
+    input: active?.input,
+    ok: event.ok,
+    content: event.content,
+    metadata,
+  })
+  const activity = active?.activity
+    ? updateActivityWithToolResult(active.activity, resultActivity, event.ok)
+    : resultActivity
+  if (!activity.title || isGenericToolActivityTitle(activity.title)) return undefined
+  return activity.title
+}
+
+function shouldUseSemanticToolResult(name: string, metadata: JsonObject, active?: ActiveTool) {
+  if (active?.activity) return true
+  if (name === "shell") return true
+  if (!metadata.activity || typeof metadata.activity !== "object" || Array.isArray(metadata.activity)) return false
+  return !new Set(["read", "write", "edit", "patch", "glob", "grep"]).has(name)
+}
+
+function isGenericToolActivityTitle(title: string) {
+  return title === "Ran command" || title === "Command failed" || title.startsWith("Used tool:")
+}
+
+function formatUserActionDetails(
+  event: Extract<AgentEvent, { type: "tool_result" }>,
+  metadata: JsonObject,
+  terminal: Terminal,
+) {
+  if (event.name !== "request_user_action" && metadata.userActionRequired !== true) return ""
+  const reason = stringValue(metadata, "reason")
+  const instructions = stringArrayValue(metadata, "instructions")
+  const resumeHint = stringValue(metadata, "resumeHint")
+  const width = Math.max(24, Math.min(180, terminal.width - 8))
+  const lines: string[] = []
+  if (reason) lines.push(oneLine(reason, width))
+  if (instructions.length) {
+    if (lines.length) lines.push("")
+    lines.push("请完成：")
+    instructions.forEach((instruction, index) => {
+      lines.push(`${index + 1}. ${oneLine(instruction, width - 3)}`)
+    })
+  }
+  if (resumeHint) {
+    if (lines.length) lines.push("")
+    lines.push(oneLine(resumeHint, width))
+  }
+  return lines.join("\n")
+}
+
+function stringArrayValue(input: JsonObject, key: string) {
+  const value = input[key]
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())) : []
 }
 
 function inputSummary(input: JsonObject) {

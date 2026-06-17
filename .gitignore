@@ -9,6 +9,7 @@ src/ui/client/dist/
 
 # Local secrets and scratch data.
 docs/*api_key*.jsonl
+docs/updates/*/api_url.json
 *.local.json
 *.local.jsonc
 

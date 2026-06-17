@@ -30,6 +30,18 @@ export type PixiuConfig = {
     apiKeyEnv?: string
     installDir: string
   }
+  tools: {
+    managedEnv: {
+      enabled: boolean
+      manager: "conda" | "mamba" | "micromamba" | "venv"
+      name: string
+      python: string
+      autoCreate: boolean
+      prependPath: boolean
+      autoInstall: "off" | "ask" | "allow"
+      path?: string
+    }
+  }
   ui: {
     accentColor: string
   }
@@ -81,13 +93,16 @@ export const defaultConfig = {
           "Use the core tools to inspect files, modify files, and execute commands in the workspace.",
           "For live data, current research, or specific URLs, prefer the generic web_search and web_fetch tools and record sources in the final artifact.",
           "For domain-specific APIs or one-off automation, create a temporary script under .pixiu/tmp or run a short shell command, inspect the result, and then write the requested artifact.",
+          "When an optional CLI tool is missing, prefer Pixiu's managed tool environment and commands such as `pixiu tools env status` and `pixiu tools install agent-reach` instead of system Python, global pip, or repeated ad hoc workaround scripts.",
           "Use local skills when a relevant skill is already available. If many local skills are installed, use skill_search to retrieve candidates before loading a skill. Do not create durable skills, search remote skills, or install remote skills unless the user explicitly asks or approves.",
+          "When using a local skill, follow its hard stop, confirmation, install, credential, and user-collaboration rules as execution constraints; do not route around them with generic scripts or alternate tools unless the user explicitly chooses that fallback.",
           "Track execution progress with todowrite for non-trivial work: tasks with 3+ steps, multi-file changes, tests/typecheck/build, high-risk edits, long-running work, or an explicit user checklist. Do not use todowrite for simple factual Q&A, one-step explanations, short translation/polish, lightweight advice, or concept discussion that does not require tools.",
           "When using todowrite, write the complete latest todo snapshot, preserve ids, keep at most one in_progress item, mark a task in_progress before executing it, mark completed only after the needed implementation and verification are done, and mark cancelled when a task is blocked, cancelled, impossible, or no longer needed. Todos are user-visible execution progress, not hidden reasoning.",
           "When a task asks for future or dated information, choose a data source and command that returns data for that exact date instead of a current-only summary.",
           "Do not pretend to have live data. Record the source URLs, commands, and access time when a task depends on external information.",
+          "When progress is blocked by an external user action the agent cannot complete alone, such as login, QR scanning, captcha, 2FA, browser authorization, cookie/session import, API key/token entry, account permission changes, or a required user decision, call request_user_action with clear instructions instead of repeatedly trying workaround commands.",
         ].join(" "),
-      tools: ["read", "grep", "glob", "web_search", "web_fetch", "shell", "write", "edit", "patch", "todowrite", "todo", "skill_search", "skill"],
+      tools: ["read", "grep", "glob", "web_search", "web_fetch", "shell", "write", "edit", "patch", "todowrite", "todo", "request_user_action", "skill_search", "skill"],
       maxSteps: 20,
     },
   },
@@ -109,6 +124,17 @@ export const defaultConfig = {
     baseURL: "https://www.skillhub.club",
     apiKeyEnv: "SKILLHUB_API_KEY",
     installDir: ".pixiu/skills",
+  },
+  tools: {
+    managedEnv: {
+      enabled: true,
+      manager: "conda",
+      name: "pixiu-tools",
+      python: "3.12",
+      autoCreate: true,
+      prependPath: true,
+      autoInstall: "ask",
+    },
   },
   ui: {
     accentColor: "#3B8EEA",

@@ -153,6 +153,88 @@ describe("semantic activity formatter", () => {
     })
   })
 
+  test("uses shell purpose and Agent Reach command fallbacks", () => {
+    expect(activityFromToolIntent({
+      toolCallId: "call_purpose",
+      toolName: "shell",
+      input: {
+        command: "agent-reach doctor --json",
+        purpose: "检查 Agent Reach 可用状态",
+      },
+    })).toMatchObject({
+      kind: "shell",
+      status: "running",
+      title: "检查 Agent Reach 可用状态",
+      command: "agent-reach doctor --json",
+      source: "llm_intent",
+    })
+
+    expect(activityFromToolIntent({
+      toolCallId: "call_agent_reach",
+      toolName: "shell",
+      input: { command: "agent-reach doctor --json" },
+    })).toMatchObject({
+      kind: "shell",
+      status: "running",
+      title: "检查 Agent Reach 可用状态",
+      command: "agent-reach doctor --json",
+      source: "fallback",
+    })
+
+    expect(activityFromToolResult({
+      toolCallId: "call_agent_reach",
+      toolName: "shell",
+      ok: false,
+      metadata: {
+        command: "agent-reach doctor --json",
+        exitCode: 127,
+        activity: {
+          kind: "shell",
+          title: "Command failed",
+          command: "agent-reach doctor --json",
+          status: "error",
+        },
+      },
+    })).toMatchObject({
+      kind: "shell",
+      status: "error",
+      title: "Agent Reach 未安装",
+      command: "agent-reach doctor --json",
+      details: { exitCode: 127 },
+      source: "fallback",
+    })
+
+    const intent = activityFromToolIntent({
+      toolCallId: "call_agent_reach_with_purpose",
+      toolName: "shell",
+      input: {
+        command: "agent-reach doctor --json",
+        purpose: "检查 Agent Reach 可用状态",
+      },
+    })!
+    const failed = activityFromToolResult({
+      toolCallId: "call_agent_reach_with_purpose",
+      toolName: "shell",
+      ok: false,
+      metadata: {
+        command: "agent-reach doctor --json",
+        exitCode: 127,
+        activity: {
+          kind: "shell",
+          title: "检查 Agent Reach 可用状态",
+          command: "agent-reach doctor --json",
+          status: "error",
+        },
+      },
+    })
+
+    expect(updateActivityWithToolResult(intent, failed, false)).toMatchObject({
+      status: "error",
+      title: "Agent Reach 未安装",
+      command: "agent-reach doctor --json",
+    })
+  })
+
   test("updates intent activity with tool result status and metadata details", () => {
     const intent = activityFromToolIntent({
       runId: "run_1",

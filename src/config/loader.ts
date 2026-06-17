@@ -70,6 +70,23 @@ export function validateConfig(config: PixiuConfig) {
   if (!isRecord(config.ui) || typeof config.ui.accentColor !== "string" || !/^#[0-9a-fA-F]{6}$/.test(config.ui.accentColor)) {
     throw new PixiuError("config.ui.accentColor must be a hex color like #3B8EEA", { code: "CONFIG_INVALID" })
   }
+  if (!isRecord(config.tools) || !isRecord(config.tools.managedEnv)) {
+    throw new PixiuError("config.tools.managedEnv is required", { code: "CONFIG_INVALID" })
+  }
+  const managedEnv = config.tools.managedEnv
+  if (!["conda", "mamba", "micromamba", "venv"].includes(managedEnv.manager)) {
+    throw new PixiuError(`config.tools.managedEnv.manager has invalid value: ${String(managedEnv.manager)}`, {
+      code: "CONFIG_INVALID",
+    })
+  }
+  if (!["off", "ask", "allow"].includes(managedEnv.autoInstall)) {
+    throw new PixiuError(`config.tools.managedEnv.autoInstall has invalid value: ${String(managedEnv.autoInstall)}`, {
+      code: "CONFIG_INVALID",
+    })
+  }
+  if (!managedEnv.name || typeof managedEnv.name !== "string") {
+    throw new PixiuError("config.tools.managedEnv.name is required", { code: "CONFIG_INVALID" })
+  }
   for (const [tool, rule] of Object.entries(config.permissions)) {
     const action = typeof rule === "string" ? rule : rule.action
     if (!actions.has(action)) {

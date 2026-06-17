@@ -151,6 +151,21 @@ describe("pixiu chat subprocess", () => {
     })
   })
 
+  test("sets max steps from inside chat config", async () => {
+    await withPixiuFixture(async ({ exec, projectDir }) => {
+      const result = await exec(["chat", "--no-color"], {
+        input: "/config max-steps 60\n/config\n/exit\n",
+        timeoutMs: 3_000,
+      })
+
+      expectExit(result, 0, "chat config max-steps")
+      expect(result.stdout).toContain("set agents.default.maxSteps 60")
+      expect(result.stdout).toContain("agent maxSteps: 60")
+      const raw = JSON.parse(await readFile(join(projectDir, "pixiu.jsonc"), "utf8"))
+      expect(raw.agents.default.maxSteps).toBe(60)
+    })
+  })
+
   test("skips blank input instead of exiting", async () => {
     await withPixiuFixture(async ({ llm, exec }) => {
       llm.text("FINAL: blank skipped")

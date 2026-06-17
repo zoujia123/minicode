@@ -416,6 +416,247 @@ describe("agent runner", () => {
     expect(events.some((event) => event.type === "todo_updated")).toBe(false)
     expect(await sessions.getTodos(sessionId!)).toEqual([])
   })
+
+  test("blocks workaround shell calls after Agent Reach skill finds missing CLI", async () => {
+    const executedShellCommands: string[] = []
+    const tools = agentReachRouteTools((command) => {
+      executedShellCommands.push(command)
+      if (command === "agent-reach doctor --json") {
+        return {
+          ok: false,
+          content: "/bin/sh: 1: agent-reach: not found",
+          metadata: { command, exitCode: 127 },
+        }
+      }
+      return { ok: true, content: "unexpected", metadata: { command, exitCode: 0 } }
+    })
+    const { events } = await runScriptedToolSequence(
+      [
+        [{ type: "tool_call", call: { id: "call_skill", name: "skill", input: { name: "agent-reach" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_doctor", name: "shell", input: { command: "agent-reach doctor --json" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_scrape", name: "shell", input: { command: "python scrape_xhs.py" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "text_start" }, { type: "text_delta", text: "FINAL: blocked" }, { type: "text_end", text: "FINAL: blocked" }, { type: "finish", reason: "stop" }],
+      ],
+      tools,
+    )
+
+    const blocked = events.find((event) => event.type === "tool_result" && event.id === "call_scrape")
+    expect(executedShellCommands).toEqual(["agent-reach doctor --json"])
+    expect(blocked).toMatchObject({
+      type: "tool_result",
+      ok: false,
+      content: expect.stringContaining("Agent Reach is missing"),
+      metadata: {
+        skillRouteBlocked: true,
+        blocker: { kind: "missing_managed_tool", skill: "agent-reach", tool: "agent-reach" },
+      },
+    })
+  })
+
+  test("allows managed Agent Reach installer and clears missing-tool blocker", async () => {
+    const executedShellCommands: string[] = []
+    let doctorAttempts = 0
+    const tools = agentReachRouteTools((command) => {
+      executedShellCommands.push(command)
+      if (command === "agent-reach doctor --json") {
+        doctorAttempts += 1
+        if (doctorAttempts === 1) {
+          return {
+            ok: false,
+            content: "/bin/sh: 1: agent-reach: not found",
+            metadata: { command, exitCode: 127 },
+          }
+        }
+        return { ok: true, content: "{\"ok\":true}", metadata: { command, exitCode: 0 } }
+      }
+      if (command === "pixiu tools install agent-reach --yes") {
+        return { ok: true, content: "installed agent-reach", metadata: { command, exitCode: 0 } }
+      }
+      return { ok: false, content: `unexpected command: ${command}`, metadata: { command, exitCode: 1 } }
+    })
+    const { events } = await runScriptedToolSequence(
+      [
+        [{ type: "tool_call", call: { id: "call_skill", name: "skill", input: { name: "agent-reach" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_doctor_1", name: "shell", input: { command: "agent-reach doctor --json" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_install", name: "shell", input: { command: "pixiu tools install agent-reach --yes" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_doctor_2", name: "shell", input: { command: "agent-reach doctor --json" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "text_start" }, { type: "text_delta", text: "FINAL: available" }, { type: "text_end", text: "FINAL: available" }, { type: "finish", reason: "stop" }],
+      ],
+      tools,
+    )
+
+    expect(executedShellCommands).toEqual([
+      "agent-reach doctor --json",
+      "pixiu tools install agent-reach --yes",
+      "agent-reach doctor --json",
+    ])
+    expect(events.find((event) => event.type === "tool_result" && event.id === "call_install")).toMatchObject({
+      type: "tool_result",
+      ok: true,
+      content: "installed agent-reach",
+    })
+    expect(events.find((event) => event.type === "tool_result" && event.id === "call_doctor_2")).toMatchObject({
+      type: "tool_result",
+      ok: true,
+      content: "{\"ok\":true}",
+    })
+  })
+
+  test("auto-installs Agent Reach when managed tool policy allows it", async () => {
+    const executedShellCommands: string[] = []
+    const installCalls: string[] = []
+    const tools = agentReachRouteTools((command) => {
+      executedShellCommands.push(command)
+      if (command === "agent-reach doctor --json") {
+        return {
+          ok: false,
+          content: "/bin/sh: 1: agent-reach: not found",
+          metadata: { command, exitCode: 127 },
+        }
+      }
+      return { ok: false, content: `unexpected command: ${command}`, metadata: { command, exitCode: 1 } }
+    })
+    const { events } = await runScriptedToolSequence(
+      [
+        [{ type: "tool_call", call: { id: "call_skill", name: "skill", input: { name: "agent-reach" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_doctor", name: "shell", input: { command: "agent-reach doctor --json" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "text_start" }, { type: "text_delta", text: "FINAL: installed" }, { type: "text_end", text: "FINAL: installed" }, { type: "finish", reason: "stop" }],
+      ],
+      tools,
+      {
+        managedTools: {
+          autoInstall: "allow",
+          async installAgentReach(input) {
+            installCalls.push(input.cwd)
+            return { exitCode: 0, stdout: "installed into managed env", stderr: "" }
+          },
+        },
+      },
+    )
+
+    const installCall = events.find(
+      (event): event is Extract<AgentEvent, { type: "tool_call" }> => event.type === "tool_call" && event.name === "shell" && event.id !== "call_doctor",
+    )
+    const installResult = events.find((event) => event.type === "tool_result" && event.name === "shell" && event.id === installCall?.id)
+    expect(executedShellCommands).toEqual(["agent-reach doctor --json"])
+    expect(installCalls).toHaveLength(1)
+    expect(installCall).toMatchObject({
+      type: "tool_call",
+      input: {
+        command: "pixiu tools install agent-reach --yes",
+        purpose: "安装 Agent Reach 到 Pixiu 托管工具环境",
+      },
+    })
+    expect(installResult).toMatchObject({
+      type: "tool_result",
+      ok: true,
+      content: "installed into managed env",
+      metadata: {
+        managedTool: "agent-reach",
+        managedToolAutoInstall: true,
+        activity: { title: "Installed Agent Reach" },
+      },
+    })
+  })
+
+  test("blocks fallback commands after Agent Reach route reports login required", async () => {
+    const executedShellCommands: string[] = []
+    const tools = agentReachRouteTools((command) => {
+      executedShellCommands.push(command)
+      if (command === "agent-reach doctor --json") {
+        return { ok: true, content: "{\"xiaohongshu\":{\"active_backend\":\"xhs-cli\"}}", metadata: { command, exitCode: 0 } }
+      }
+      if (command === "xhs feed") {
+        return {
+          ok: false,
+          content: "Not logged in. Run `xhs login` first.",
+          metadata: { command, exitCode: 1 },
+        }
+      }
+      return { ok: true, content: "unexpected", metadata: { command, exitCode: 0 } }
+    })
+    const { events } = await runScriptedToolSequence(
+      [
+        [{ type: "tool_call", call: { id: "call_skill", name: "skill", input: { name: "agent-reach" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_doctor", name: "shell", input: { command: "agent-reach doctor --json" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_feed", name: "shell", input: { command: "xhs feed" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_search", name: "shell", input: { command: "python scrape_xhs_public.py" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "text_start" }, { type: "text_delta", text: "FINAL: needs login" }, { type: "text_end", text: "FINAL: needs login" }, { type: "finish", reason: "stop" }],
+      ],
+      tools,
+    )
+
+    const blocked = events.find((event) => event.type === "tool_result" && event.id === "call_search")
+    expect(executedShellCommands).toEqual(["agent-reach doctor --json", "xhs feed"])
+    expect(blocked).toMatchObject({
+      type: "tool_result",
+      ok: false,
+      metadata: {
+        skillRouteBlocked: true,
+        userActionRequired: true,
+        category: "auth",
+        blocker: { kind: "user_action_required", skill: "agent-reach", signal: "login_required" },
+      },
+    })
+  })
+
+  test("allows request_user_action after Agent Reach route hits QR or captcha blocker", async () => {
+    const tools = agentReachRouteTools((command) => {
+      if (command === "opencli xiaohongshu feed") {
+        return {
+          ok: false,
+          content: "QR code login required. Please scan QR code in browser.",
+          metadata: { command, exitCode: 1 },
+        }
+      }
+      return { ok: true, content: "ok", metadata: { command, exitCode: 0 } }
+    }).register({
+      name: "request_user_action",
+      description: "request user action",
+      inputSchema: { type: "object", properties: { title: { type: "string" }, reason: { type: "string" }, instructions: { type: "array", items: { type: "string" } } }, required: ["title", "reason", "instructions"] },
+      async execute(input) {
+        return {
+          ok: true,
+          content: String(input.title),
+          metadata: {
+            userActionRequired: true,
+            category: "auth",
+            title: String(input.title),
+            instructions: Array.isArray(input.instructions) ? input.instructions.filter((item): item is string => typeof item === "string") : [],
+          },
+        }
+      },
+    })
+    const { events } = await runScriptedToolSequence(
+      [
+        [{ type: "tool_call", call: { id: "call_skill", name: "skill", input: { name: "agent-reach" } } }, { type: "finish", reason: "tool_calls" }],
+        [{ type: "tool_call", call: { id: "call_opencli", name: "shell", input: { command: "opencli xiaohongshu feed" } } }, { type: "finish", reason: "tool_calls" }],
+        [
+          {
+            type: "tool_call",
+            call: {
+              id: "call_user",
+              name: "request_user_action",
+              input: {
+                title: "需要扫码登录",
+                reason: "小红书需要扫码授权。",
+                instructions: ["完成扫码登录。"],
+              },
+            },
+          },
+          { type: "finish", reason: "tool_calls" },
+        ],
+        [{ type: "text_start" }, { type: "text_delta", text: "FINAL: waiting" }, { type: "text_end", text: "FINAL: waiting" }, { type: "finish", reason: "stop" }],
+      ],
+      tools,
+    )
+
+    expect(events.find((event) => event.type === "tool_result" && event.id === "call_user")).toMatchObject({
+      type: "tool_result",
+      ok: true,
+      metadata: { userActionRequired: true, category: "auth" },
+    })
+  })
 })
 
 async function runScriptedTool(name: string, input: JsonObject, tools = new ToolRegistry().registerMany(createBuiltinTools())) {
@@ -445,6 +686,35 @@ async function runScriptedTool(name: string, input: JsonObject, tools = new Tool
   return { events, sessions }
 }
 
+async function runScriptedToolSequence(
+  steps: ConstructorParameters<typeof ScriptedLLMClient>[0],
+  tools: ToolRegistry,
+  options: Partial<ConstructorParameters<typeof AgentRunner>[0]> = {},
+) {
+  const root = await mkdtemp(join(tmpdir(), "pixiu-agent-sequence-"))
+  const sessions = new MemorySessionStore()
+  const runner = new AgentRunner({
+    llm: new ScriptedLLMClient(steps),
+    tools,
+    sessions,
+    model: "scripted",
+    systemPrompt: "test",
+    maxSteps: 8,
+    toolContext: {
+      cwd: root,
+      workspaceRoot: root,
+      permissions: new StaticPermissionManager([{ tool: "*", action: "allow" }]),
+      pathGuard: new PathGuard({ workspaceRoot: root, workspaceOnly: true }),
+      config: { shellTimeoutMs: 500, outputMaxBytes: 4_000, envAllowlist: ["PATH"] },
+    },
+    ...options,
+  })
+
+  const events: AgentEvent[] = []
+  for await (const event of runner.run({ message: "go" })) events.push(event)
+  return { events, sessions }
+}
+
 function echoTools() {
   return new ToolRegistry().register({
     name: "echo",
@@ -454,6 +724,27 @@ function echoTools() {
       return { ok: true, content: String(input.text), data: input }
     },
   })
+}
+
+function agentReachRouteTools(shellHandler: (command: string) => { ok: boolean; content: string; metadata?: JsonObject }) {
+  return new ToolRegistry()
+    .register({
+      name: "skill",
+      description: "load skill",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      async execute(input) {
+        const name = String(input.name)
+        return { ok: true, content: `Loaded ${name}`, metadata: { name } }
+      },
+    })
+    .register({
+      name: "shell",
+      description: "run shell",
+      inputSchema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+      async execute(input) {
+        return shellHandler(String(input.command))
+      },
+    })
 }
 
 function eventTypesAround(events: AgentEvent[], start: AgentEvent["type"], end: AgentEvent["type"]) {

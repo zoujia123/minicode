@@ -281,6 +281,179 @@ The existing `deriveExecutionTimeline(trace)` heuristic should remain as a compa
 - [ ] No hidden chain-of-thought display.
 - [ ] No removal of current deterministic frontend heuristics until old sessions are safely covered.
 
+## Slice 9: CLI Semantic Trace Rendering
+
+The Web UI Activity panel now has a metadata-first semantic activity path, but interactive CLI chat still renders many tool calls as raw developer traces such as:
+
+```text
+● Bash(agent-reach doctor --json)
+  ⎿ ✗ Bash failed exit=127 · 2.1 s
+```
+
+That is useful for debugging, but it is not friendly as the default user-facing progress surface. The CLI should show a task-oriented activity stream by default while preserving raw commands under verbose/debug output.
+
+### Goals
+
+- [ ] Make CLI chat consume the same semantic activity model used by the Web UI.
+  - [ ] Reuse `activityFromToolIntent()`, `activityFromToolResult()`, and `updateActivityWithToolResult()` where practical.
+  - [ ] Avoid creating a separate CLI-only semantic model that diverges from UI behavior.
+  - [ ] Keep raw command and result content auditable.
+- [ ] Replace raw shell-first labels with intent-first labels in codebuddy-style chat output.
+  - [ ] Prefer user-facing titles such as `检查 Agent Reach 可用状态`.
+  - [ ] Avoid defaulting to `Bash(command)` when a semantic title is available.
+  - [ ] Avoid defaulting to `Completed bash command` / `Bash failed` when a semantic result title is available.
+- [ ] Preserve developer ergonomics.
+  - [ ] `--verbose` should show raw command details, stdout/stderr preview, exit code, and timing.
+  - [ ] JSON / stream-json output should remain raw and machine-readable.
+  - [ ] Compact non-chat trace output should remain readable and backward-compatible unless explicitly changed.
+
+### Shell Purpose
+
+Shell is the biggest source of noisy output. Add a simple intent field to the shell tool input:
+
+```ts
+purpose?: string
+```
+
+Example model call:
+
+```json
+{
+  "command": "agent-reach doctor --json",
+  "purpose": "检查 Agent Reach 可用状态"
+}
+```
+
+Expected behavior:
+
+```text
+● 检查 Agent Reach 可用状态
+  ⎿ ✗ Agent Reach 未安装 · 2.1 s
+```
+
+Instead of:
+
+```text
+● Bash(agent-reach doctor --json)
+  ⎿ ✗ Bash failed exit=127 · 2.1 s
+```
+
+Tasks:
+
+- [ ] Extend shell input schema with optional `purpose`.
+  - [ ] Treat `purpose` as model-declared intent, not verified fact.
+  - [ ] Preserve raw `command` in metadata and verbose output.
+  - [ ] Do not pass `purpose` to the shell process.
+- [ ] Include `purpose` in shell `metadata.activity`.
+  - [ ] Use it as `activity.title` or `activity.summary`.
+  - [ ] Keep `activity.command` as the raw command.
+  - [ ] Keep deterministic metadata such as `exitCode`, `timedOut`, and `durationMs`.
+- [ ] Update the system prompt examples.
+  - [ ] Show `purpose` for shell calls.
+  - [ ] Keep `_activity` supported for richer structured cases.
+  - [ ] Include an Agent Reach example:
+
+```json
+{
+  "command": "agent-reach doctor --json",
+  "purpose": "检查 Agent Reach 可用状态",
+  "_activity": {
+    "kind": "shell",
+    "title": "检查 Agent Reach 可用状态"
+  }
+}
+```
+
+### CLI Rendering Priority
+
+Update `CliTraceRenderer` display priority for `tool_call` and `tool_result`.
+
+For `tool_call`, use:
+
+1. `tool_call.input._activity.title`
+2. `shell input purpose`
+3. deterministic command intent fallback
+4. current compact tool label
+5. raw `Bash(command)` only as last resort or verbose detail
+
+For `tool_result`, use:
+
+1. `tool_result.metadata.activity.title` / semantic status
+2. matched prior intent from the active tool call
+3. deterministic command result fallback
+4. current raw result summary
+
+Suggested default output:
+
+```text
+● 加载 Agent Reach 能力说明
+  ⎿ ✓ 已加载 agent-reach
+● 检查 Agent Reach 可用状态
+  ⎿ ✗ Agent Reach 未安装 · 2.1 s
+● 准备小红书查询工具
+  ⎿ ✓ 已安装 xhs-cli
+```
+
+Suggested verbose output can append or reveal:
+
+```text
+raw: agent-reach doctor --json
+exit: 127
+stderr: /bin/sh: 1: agent-reach: not found
+```
+
+### Deterministic Shell Intent Fallbacks
+
+Do not try to infer arbitrary business intent from shell commands. Add only obvious, stable command recognizers.
+
+Suggested first recognizers:
+
+- [ ] `agent-reach doctor --json` -> `检查 Agent Reach 可用状态`
+- [ ] `agent-reach install --env=auto --safe` -> `预检 Agent Reach 安装`
+- [ ] `agent-reach install --env=auto --dry-run` -> `预览 Agent Reach 安装`
+- [ ] `agent-reach install ...` -> `安装 Agent Reach`
+- [ ] `agent-reach check-update` -> `检查 Agent Reach 更新`
+- [ ] `pipx install xhs-cli` / `pip3 install ... xhs-cli` -> `安装小红书命令行工具`
+- [ ] `python3 -m venv ...` -> `创建临时 Python 环境`
+- [ ] `which agent-reach` / `command -v agent-reach` -> `检查 Agent Reach 命令`
+- [ ] `which pipx` / `command -v pipx` -> `检查 pipx 命令`
+- [ ] `xhs hot` -> `获取小红书热门话题`
+- [ ] `xhs search ...` -> `搜索小红书内容`
+- [ ] `opencli xiaohongshu ...` -> `使用 OpenCLI 访问小红书`
+- [ ] `bili search ...` -> `搜索 Bilibili 视频`
+- [ ] `yt-dlp ...` -> `读取 YouTube 视频信息`
+
+Fallback rules:
+
+- [ ] If the command is not confidently recognized, keep a generic semantic label such as `运行命令` rather than inventing an intent.
+- [ ] Keep the raw command available under verbose output.
+- [ ] Never hide failures. Friendly labels should still make errors clear.
+
+### Tests
+
+- [ ] CLI trace tests:
+  - [ ] `shell` call with `purpose` renders the purpose instead of `Bash(command)`.
+  - [ ] `shell` result with `metadata.activity` renders semantic title/status.
+  - [ ] `agent-reach doctor --json` fallback renders `检查 Agent Reach 可用状态`.
+  - [ ] Failed `agent-reach doctor --json` with exit 127 renders an Agent Reach missing-style message, not only `Bash failed`.
+  - [ ] `--verbose` or verbose renderer still includes raw command details.
+  - [ ] Existing non-semantic tool traces remain readable.
+- [ ] Tool tests:
+  - [ ] Shell schema accepts `purpose`.
+  - [ ] Shell execution ignores `purpose` for process invocation.
+  - [ ] Shell result metadata includes both `command` and semantic `activity`.
+- [ ] Prompt tests:
+  - [ ] Shell examples mention `purpose`.
+  - [ ] `_activity` examples remain valid.
+
+### Non-goals
+
+- [ ] No LLM-based summarization of arbitrary shell commands.
+- [ ] No removal of raw command data.
+- [ ] No change to JSON / stream-json event contracts beyond existing tool input/metadata additions.
+- [ ] No full dynamic terminal TUI.
+- [ ] No attempt to make every command perfectly human-readable in the first version.
+
 ## Suggested Order
 
 1. Add shared `TodoItem` type and structured `todowrite` tool.
@@ -291,6 +464,7 @@ The existing `deriveExecutionTimeline(trace)` heuristic should remain as a compa
 6. Strengthen the default prompt and tests.
 7. Add richer run status only if needed.
 8. Add tool-authored `metadata.activity` and make the UI metadata-first.
+9. Make CLI chat consume semantic activity metadata and shell `purpose`.
 
 ## Non-goals
 

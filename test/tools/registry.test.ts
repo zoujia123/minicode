@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -17,6 +17,7 @@ async function context(root: string, autoApprove = true) {
         { tool: "read", action: "allow" },
         { tool: "write", action: "ask" },
         { tool: "shell", action: "ask" },
+        { tool: "request_user_action", action: "allow" },
       ],
       { nonInteractive: true, autoApprove },
     ),
@@ -36,6 +37,8 @@ describe("tool registry and builtins", () => {
       description: expect.stringContaining("Pixiu-only"),
     })
     expect(shellSchema?.properties?.command).toMatchObject({ type: "string" })
+    expect(shellSchema?.properties?.purpose).toMatchObject({ type: "string" })
+    expect(executionSchema?.properties?.purpose).toMatchObject({ type: "string" })
     expect(executionSchema?.properties?._activity).toBeUndefined()
   })
 
@@ -51,6 +54,41 @@ describe("tool registry and builtins", () => {
       kind: "file",
       title: "Read file",
       target: "note.txt",
+    })
+  })
+
+  test("request_user_action captures generic user collaboration requests", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-user-action-"))
+    const registry = new ToolRegistry().registerMany(createBuiltinTools())
+
+    const result = await registry.execute(
+      "request_user_action",
+      {
+        category: "auth",
+        title: "需要登录小红书",
+        reason: "当前工具需要登录态才能读取小红书内容。",
+        instructions: ["运行 xhs login", "扫码完成登录"],
+        resumeHint: "完成后回复“好了”，我会继续获取热门话题。",
+      },
+      await context(root),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain("需要登录小红书")
+    expect(result.metadata).toMatchObject({
+      userActionRequired: true,
+      category: "auth",
+      title: "需要登录小红书",
+      instructions: ["运行 xhs login", "扫码完成登录"],
+      activity: {
+        kind: "permission",
+        title: "需要登录小红书",
+        status: "skipped",
+        details: {
+          userActionRequired: true,
+          category: "auth",
+        },
+      },
     })
   })
 
@@ -111,6 +149,60 @@ describe("tool registry and builtins", () => {
       title: "Ran command",
       command: "printf hello",
     })
+  })
+
+  test("shell purpose is accepted as activity metadata without changing process input", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-shell-purpose-"))
+    const registry = new ToolRegistry().registerMany(createBuiltinTools())
+
+    const result = await registry.execute(
+      "shell",
+      {
+        command: "printf command-ok",
+        purpose: "检查 Agent Reach 可用状态",
+      },
+      await context(root),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain("command-ok")
+    expect(result.content).not.toContain("检查 Agent Reach 可用状态")
+    expect(result.metadata).toMatchObject({
+      command: "printf command-ok",
+      activity: {
+        kind: "shell",
+        status: "success",
+        title: "检查 Agent Reach 可用状态",
+        summary: "检查 Agent Reach 可用状态",
+        command: "printf command-ok",
+      },
+    })
+  })
+
+  test("shell uses managed environment PATH from tool context", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-tools-shell-managed-path-"))
+    const bin = join(root, "managed-bin")
+    await mkdir(bin)
+    const commandPath = join(bin, "pixiu-managed-tool")
+    await writeFile(commandPath, "#!/bin/sh\nprintf managed-tool-ok\n", "utf8")
+    await chmod(commandPath, 0o755)
+    const registry = new ToolRegistry().registerMany(createBuiltinTools())
+    const base = await context(root)
+
+    const result = await registry.execute(
+      "shell",
+      { command: "pixiu-managed-tool" },
+      {
+        ...base,
+        config: {
+          ...base.config,
+          envPrependPath: [bin],
+        },
+      },
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain("managed-tool-ok")
   })
 
   test("shell denies obvious writes outside the workspace", async () => {

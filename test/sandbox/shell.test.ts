@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtemp } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
-import { classifyShellCommand, findOutsideWorkspaceShellWrite } from "../../src/sandbox/shell"
+import { classifyShellCommand, findOutsideWorkspaceShellWrite, runShell } from "../../src/sandbox/shell"
 
 describe("shell sandbox helpers", () => {
   test("classifies command risk", () => {
@@ -19,5 +19,39 @@ describe("shell sandbox helpers", () => {
 
     expect(findOutsideWorkspaceShellWrite("printf nope > ../outside.txt", root)).toBe("../outside.txt")
     expect(findOutsideWorkspaceShellWrite("printf ok > .pixiu/tmp/a.txt", root)).toBeUndefined()
+  })
+
+  test("prepends managed environment bin path for shell commands", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-shell-path-"))
+    const bin = join(root, "managed-bin")
+    await mkdir(bin)
+    const commandPath = join(bin, "pixiu-managed-hello")
+    await writeFile(commandPath, "#!/bin/sh\nprintf managed-ok\n", "utf8")
+    await chmod(commandPath, 0o755)
+
+    const result = await runShell("pixiu-managed-hello", {
+      cwd: root,
+      timeoutMs: 500,
+      outputMaxBytes: 4_000,
+      envAllowlist: ["PATH"],
+      envPrependPath: [bin],
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe("managed-ok")
+  })
+
+  test("applies explicit safe environment overrides", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-shell-env-"))
+    const result = await runShell("printf \"$PYTHONNOUSERSITE\"", {
+      cwd: root,
+      timeoutMs: 500,
+      outputMaxBytes: 4_000,
+      envAllowlist: ["PATH"],
+      envOverrides: { PYTHONNOUSERSITE: "1" },
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe("1")
   })
 })

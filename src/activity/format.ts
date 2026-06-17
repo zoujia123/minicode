@@ -29,8 +29,12 @@ export type ToolIntentActivityInput = {
 }
 
 export function activityFromToolIntent(input: ToolIntentActivityInput): ActivityItem | undefined {
-  const activityMetadata = toolCallActivityMetadata(input.input)
+  const llmActivityMetadata = toolCallActivityMetadata(input.input)
+  const purposeActivityMetadata = shellPurposeActivityMetadata(input.toolName, input.input)
+  const fallbackActivityMetadata = shellCommandActivityMetadata(input.toolName, input.input)
+  const activityMetadata = llmActivityMetadata ?? purposeActivityMetadata ?? fallbackActivityMetadata
   if (!activityMetadata) return undefined
+  const source = llmActivityMetadata || purposeActivityMetadata ? "llm_intent" : "fallback"
   return {
     id: stableActivityId("act", input.runId, input.toolCallId, input.toolName),
     ...(input.runId ? { runId: input.runId } : {}),
@@ -46,7 +50,7 @@ export function activityFromToolIntent(input: ToolIntentActivityInput): Activity
     ...(input.startedAt ? { startedAt: input.startedAt } : {}),
     rawEventIds: [`tool_call:${input.toolCallId}`],
     ...(activityMetadata.details ? { details: activityMetadata.details } : {}),
-    source: "llm_intent",
+    source,
   }
 }
 
@@ -86,7 +90,7 @@ export function updateActivityWithToolResult(existing: ActivityItem, result: Act
   return {
     ...existing,
     status,
-    title: finalIntentTitle(existing.title, status),
+    title: finalMergedTitle(existing, result, status),
     ...(summary ? { summary } : {}),
     ...(result.target ? { target: result.target } : existing.target ? { target: existing.target } : {}),
     ...(result.command ? { command: result.command } : existing.command ? { command: existing.command } : {}),
@@ -189,6 +193,49 @@ function fallbackToolActivity(toolName: string, input: unknown, metadata: unknow
     return fileActivity(status, ok ? "Edited file" : "File edit failed", target)
   }
   if (lower === "shell" || lower.includes("shell") || lower.includes("bash")) {
+    const knownCommand = shellCommandActivityMetadata(toolName, metadataObject.command ? metadata : input)
+    if (knownCommand) {
+      const knownActivityCommand = knownCommand.command ?? command
+      const title = shellCommandResultTitle(knownCommand.title, status, command, metadataObject)
+      if (title === "Agent Reach 未安装") {
+        return {
+          kind: knownCommand.kind ?? "shell",
+          status,
+          title,
+          ...(knownCommand.summary ? { summary: knownCommand.summary } : {}),
+          ...(knownCommand.target ? { target: knownCommand.target } : {}),
+          ...(knownActivityCommand ? { command: knownActivityCommand } : {}),
+          ...(knownCommand.details ? { details: knownCommand.details } : {}),
+          ...shellDetails(metadataObject),
+        }
+      }
+    }
+    const purpose = shellPurposeActivityMetadata(toolName, input)
+    if (purpose) {
+      const purposeCommand = purpose.command ?? command
+      return {
+        kind: purpose.kind ?? "shell",
+        status,
+        title: purpose.title ?? (ok ? "Ran command" : "Command failed"),
+        ...(purpose.summary ? { summary: purpose.summary } : {}),
+        ...(purpose.target ? { target: purpose.target } : {}),
+        ...(purposeCommand ? { command: purposeCommand } : {}),
+        ...shellDetails(metadataObject),
+      }
+    }
+    if (knownCommand) {
+      const knownActivityCommand = knownCommand.command ?? command
+      return {
+        kind: knownCommand.kind ?? "shell",
+        status,
+        title: shellCommandResultTitle(knownCommand.title, status, command, metadataObject),
+        ...(knownCommand.summary ? { summary: knownCommand.summary } : {}),
+        ...(knownCommand.target ? { target: knownCommand.target } : {}),
+        ...(knownActivityCommand ? { command: knownActivityCommand } : {}),
+        ...(knownCommand.details ? { details: knownCommand.details } : {}),
+        ...shellDetails(metadataObject),
+      }
+    }
     const weather = command ? weatherActivityFromCommand(command, status) : undefined
     if (weather) {
       const shell = shellDetails(metadataObject)
@@ -264,6 +311,103 @@ function weatherActivityFromCommand(command: string, status: ActivityStatus): Om
   }
 }
 
+function shellPurposeActivityMetadata(toolName: string, input: unknown): ActivityMetadata | undefined {
+  const lower = toolName.toLowerCase()
+  if (lower !== "shell" && !lower.includes("shell") && !lower.includes("bash")) return undefined
+  const raw = objectValue(input)
+  const purpose = stringValue(raw.purpose)
+  if (!purpose) return undefined
+  const command = stringValue(raw.command)
+  return {
+    kind: "shell",
+    title: purpose,
+    ...(command ? { command } : {}),
+  }
+}
+
+function shellCommandActivityMetadata(toolName: string, input: unknown): ActivityMetadata | undefined {
+  const lower = toolName.toLowerCase()
+  if (lower !== "shell" && !lower.includes("shell") && !lower.includes("bash")) return undefined
+  const raw = objectValue(input)
+  const command = stringValue(raw.command)
+  if (!command) return undefined
+  const compact = compactShellCommand(command)
+  const activity = knownShellCommandActivity(compact)
+  if (!activity) return undefined
+  const title = activity.title
+  if (!title) return undefined
+  return {
+    kind: "shell",
+    title,
+    ...(activity.summary ? { summary: activity.summary } : {}),
+    ...(activity.target ? { target: activity.target } : {}),
+    command,
+    ...(activity.details ? { details: activity.details } : {}),
+  }
+}
+
+function knownShellCommandActivity(command: string): ActivityMetadata | undefined {
+  if (/^agent-reach\s+doctor\s+--json(?:\s|$)/.test(command)) {
+    return { title: "检查 Agent Reach 可用状态", target: "agent-reach" }
+  }
+  if (/^agent-reach\s+install\b/.test(command)) {
+    if (/\s--env=auto(?:\s|$)/.test(command) && /\s--safe(?:\s|$)/.test(command)) {
+      return { title: "预检 Agent Reach 安装", target: "agent-reach" }
+    }
+    if (/\s--env=auto(?:\s|$)/.test(command) && /\s--dry-run(?:\s|$)/.test(command)) {
+      return { title: "预览 Agent Reach 安装", target: "agent-reach" }
+    }
+    return { title: "安装 Agent Reach", target: "agent-reach" }
+  }
+  if (/^agent-reach\s+check-update(?:\s|$)/.test(command)) {
+    return { title: "检查 Agent Reach 更新", target: "agent-reach" }
+  }
+  if (/^(?:which|command\s+-v)\s+agent-reach(?:\s|$)/.test(command)) {
+    return { title: "检查 Agent Reach 命令", target: "agent-reach" }
+  }
+  if (/^(?:which|command\s+-v)\s+pipx(?:\s|$)/.test(command)) {
+    return { title: "检查 pipx 命令", target: "pipx" }
+  }
+  if (/^(?:pipx\s+install|pip3?\s+install\b|python3?\s+-m\s+pip\s+install\b).*?(?:^|\s)xhs-cli(?:\s|$)/.test(command)) {
+    return { title: "安装小红书命令行工具", target: "xhs-cli" }
+  }
+  if (/^python3?\s+-m\s+venv(?:\s|$)/.test(command)) {
+    return { title: "创建临时 Python 环境", target: "python venv" }
+  }
+  if (/^xhs\s+hot(?:\s|$)/.test(command)) {
+    return { title: "获取小红书热门话题", target: "小红书" }
+  }
+  if (/^xhs\s+search(?:\s|$)/.test(command)) {
+    return { title: "搜索小红书内容", target: "小红书" }
+  }
+  if (/^opencli\s+xiaohongshu(?:\s|$)/.test(command)) {
+    return { title: "使用 OpenCLI 访问小红书", target: "小红书" }
+  }
+  if (/^bili\s+search(?:\s|$)/.test(command)) {
+    return { title: "搜索 Bilibili 视频", target: "Bilibili" }
+  }
+  if (/^yt-dlp(?:\s|$)/.test(command)) {
+    return { title: "读取 YouTube 视频信息", target: "YouTube" }
+  }
+  return undefined
+}
+
+function shellCommandResultTitle(title: string | undefined, status: ActivityStatus, command: string | undefined, metadata: Record<string, unknown>) {
+  if (
+    status === "error" &&
+    metadata.exitCode === 127 &&
+    command &&
+    /^agent-reach\s+doctor\s+--json(?:\s|$)/.test(compactShellCommand(command))
+  ) {
+    return "Agent Reach 未安装"
+  }
+  return title ?? (status === "error" ? "Command failed" : "Ran command")
+}
+
+function compactShellCommand(command: string) {
+  return command.trim().replace(/\s+/g, " ")
+}
+
 function wttrUrlFromCommand(command: string) {
   const match = command.match(/(?:https?:\/\/)?(?:[^/\s'"]+\.)?wttr\.in\/[^\s'"]+/i)
   const raw = match?.[0]?.trim()
@@ -278,6 +422,9 @@ function wttrUrlFromCommand(command: string) {
 
 function preferFallbackOverGenericActivity(metadata: ActivityMetadata, fallback: Omit<ActivityItem, "id">) {
   if (metadata.title && isGenericCommandTitle(metadata.title) && fallback.title !== metadata.title) {
+    return {}
+  }
+  if (metadata.title && fallback.status === "error" && fallback.title === "Agent Reach 未安装") {
     return {}
   }
   return metadata
@@ -367,6 +514,14 @@ function finalIntentTitle(title: string, status: ActivityStatus) {
       .replace(/^Editing\b/i, "Failed to edit")
   }
   return title
+}
+
+function finalMergedTitle(existing: ActivityItem, result: ActivityItem, status: ActivityStatus) {
+  const intentTitle = finalIntentTitle(existing.title, status)
+  if (status === "error" && intentTitle === existing.title && result.title && !isGenericCommandTitle(result.title)) {
+    return result.title
+  }
+  return intentTitle
 }
 
 function uniqueStrings(values: string[]) {

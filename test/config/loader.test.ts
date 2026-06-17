@@ -11,6 +11,12 @@ describe("config loader", () => {
     const config = await loadConfig({ cwd: root })
     expect(config.agents.default?.maxSteps).toBeGreaterThan(0)
     expect(config.ui.accentColor).toBe("#3B8EEA")
+    expect(config.tools.managedEnv).toMatchObject({
+      enabled: true,
+      manager: "conda",
+      name: "pixiu-tools",
+      autoInstall: "ask",
+    })
   })
 
   test("loads a custom ui accent color", async () => {
@@ -45,5 +51,11 @@ describe("config loader", () => {
     const root = await mkdtemp(join(tmpdir(), "pixiu-config-bad-ui-"))
     await writeFile(join(root, "pixiu.jsonc"), `{"ui":{"accentColor":"blue"}}`, "utf8")
     await expect(loadConfig({ cwd: root })).rejects.toThrow("config.ui.accentColor")
+  })
+
+  test("points to invalid managed tool environment config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pixiu-config-bad-tools-"))
+    await writeFile(join(root, "pixiu.jsonc"), `{"tools":{"managedEnv":{"manager":"global-pip"}}}`, "utf8")
+    await expect(loadConfig({ cwd: root })).rejects.toThrow("config.tools.managedEnv.manager")
   })
 })

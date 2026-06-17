@@ -18,6 +18,20 @@ describe("pixiu CLI smoke subprocesses", () => {
       expect(tools.stdout).toContain("shell")
       expect(tools.stdout).toContain("write")
 
+      const managedTools = await exec(["tools", "env", "status"])
+      expectExit(managedTools, 0, "tools env status")
+      expect(managedTools.stdout).toContain("Managed tool environment")
+      expect(managedTools.stdout).toContain("agent-reach")
+
+      const managedPath = await exec(["tools", "env", "path"])
+      expectExit(managedPath, 0, "tools env path")
+      expect(managedPath.stdout).toContain("pixiu-tools")
+
+      const agentReachPreview = await exec(["tools", "install", "agent-reach"])
+      expectExit(agentReachPreview, 0, "tools install agent-reach preview")
+      expect(agentReachPreview.stdout).toContain("Managed tool install preview")
+      expect(agentReachPreview.stdout).toContain("agent-reach")
+
       const sessions = await exec(["session", "list"])
       expectExit(sessions, 0, "session list")
       expect(sessions.stdout).toBe("")
@@ -41,6 +55,22 @@ describe("pixiu CLI smoke subprocesses", () => {
       const getConfig = await exec(["config", "get", "sandbox.shellTimeoutMs"])
       expectExit(getConfig, 0, "config get")
       expect(JSON.parse(getConfig.stdout)).toBe(7000)
+
+      const setMaxSteps = await exec(["config", "max-steps", "100"])
+      expectExit(setMaxSteps, 0, "config max-steps")
+      expect(setMaxSteps.stdout).toContain("set agents.default.maxSteps 100")
+
+      const showMaxSteps = await exec(["config", "max-steps"])
+      expectExit(showMaxSteps, 0, "config max-steps show")
+      expect(showMaxSteps.stdout).toContain("maxSteps: 100")
+
+      const getMaxSteps = await exec(["config", "get", "agents.default.maxSteps"])
+      expectExit(getMaxSteps, 0, "config get maxSteps")
+      expect(JSON.parse(getMaxSteps.stdout)).toBe(100)
+
+      const invalidMaxSteps = await exec(["config", "max-steps", "0"])
+      expect(invalidMaxSteps.exitCode).toBe(1)
+      expect(invalidMaxSteps.stderr).toContain("config max-steps requires an integer from 1 to 200")
     })
   })
 

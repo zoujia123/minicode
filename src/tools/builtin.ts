@@ -10,6 +10,7 @@ import type { ToolContext, ToolDefinition } from "./types"
 
 const TODO_STATUSES = new Set<TodoStatus>(["pending", "in_progress", "completed", "cancelled"])
 const TODO_PRIORITIES = new Set<TodoPriority>(["high", "medium", "low"])
+const USER_ACTION_CATEGORIES = new Set(["auth", "captcha", "approval", "input", "secret", "environment", "other"])
 
 async function walkFiles(root: string, includeHidden = false): Promise<string[]> {
   const entries: string[] = []
@@ -91,6 +92,16 @@ function legacyTodos(items: string[]) {
     status: "pending" as const,
     priority: "medium" as const,
   }))
+}
+
+function normalizeStringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((item) => String(item).trim()).filter(Boolean)
+    : []
+}
+
+function normalizeUserActionCategory(value: unknown) {
+  return typeof value === "string" && USER_ACTION_CATEGORIES.has(value) ? value : "other"
 }
 
 async function resolveToolPath(tool: string, path: string, context: ToolContext) {
@@ -248,6 +259,7 @@ export function createBuiltinTools(): ToolDefinition[] {
         type: "object",
         properties: {
           command: { type: "string" },
+          purpose: { type: "string", description: "Optional concise user-visible intent for this command. This is not passed to the shell process." },
           cwd: { type: "string" },
           timeoutMs: { type: "number" },
         },
@@ -256,6 +268,7 @@ export function createBuiltinTools(): ToolDefinition[] {
       async execute(input, context) {
         const cwd = (await resolveToolPath("shell", stringField(input, "cwd", "."), context)).absolutePath
         const command = stringField(input, "command")
+        const purpose = typeof input.purpose === "string" && input.purpose.trim() ? input.purpose.trim() : undefined
         const outsideTarget = findOutsideWorkspaceShellWrite(command, context.workspaceRoot)
         if (outsideTarget) {
           return {
@@ -268,8 +281,8 @@ export function createBuiltinTools(): ToolDefinition[] {
               outsideWorkspaceTarget: outsideTarget,
               activity: {
                 kind: "shell",
-                title: "Command failed",
-                summary: `Failed ${command}`,
+                title: purpose ?? "Command failed",
+                summary: purpose ? `Failed: ${purpose}` : `Failed ${command}`,
                 command,
                 status: "error",
                 details: { outsideWorkspaceTarget: outsideTarget },
@@ -282,6 +295,8 @@ export function createBuiltinTools(): ToolDefinition[] {
           timeoutMs: numberField(input, "timeoutMs", context.config.shellTimeoutMs),
           outputMaxBytes: context.config.outputMaxBytes,
           envAllowlist: context.config.envAllowlist,
+          ...(context.config.envPrependPath ? { envPrependPath: context.config.envPrependPath } : {}),
+          ...(context.config.envOverrides ? { envOverrides: context.config.envOverrides } : {}),
         }
         const result = await runShell(
           command,
@@ -304,8 +319,14 @@ export function createBuiltinTools(): ToolDefinition[] {
             stderrTruncated: result.stderrTruncated,
             activity: {
               kind: "shell",
-              title: result.exitCode === 0 && !result.timedOut ? "Ran command" : "Command failed",
-              summary: result.exitCode === 0 && !result.timedOut ? `Ran ${command}` : `Failed ${command}`,
+              title: purpose ?? (result.exitCode === 0 && !result.timedOut ? "Ran command" : "Command failed"),
+              summary: purpose
+                ? result.exitCode === 0 && !result.timedOut
+                  ? purpose
+                  : `Failed: ${purpose}`
+                : result.exitCode === 0 && !result.timedOut
+                  ? `Ran ${command}`
+                  : `Failed ${command}`,
               command,
               status: result.exitCode === 0 && !result.timedOut ? "success" : "error",
               details: {
@@ -420,6 +441,71 @@ export function createBuiltinTools(): ToolDefinition[] {
       async execute(input, context) {
         const writeTool = createBuiltinTools().find((tool) => tool.name === "write")!
         return writeTool.execute(input as JsonObject, context)
+      },
+    },
+    {
+      name: "request_user_action",
+      description: "Pause and ask the user to complete an external action that the agent cannot do alone, such as login, QR scan, captcha, 2FA, browser authorization, cookie/session import, API key/token entry, account permission changes, or choosing a path forward. Use this instead of repeatedly trying commands when user collaboration is required.",
+      risk: "low",
+      inputSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short user-visible title for the needed action." },
+          reason: { type: "string", description: "Why the task is blocked without user collaboration." },
+          category: {
+            type: "string",
+            enum: ["auth", "captcha", "approval", "input", "secret", "environment", "other"],
+            description: "Kind of user action required.",
+          },
+          instructions: {
+            type: "array",
+            description: "Concrete steps the user should perform.",
+            items: { type: "string" },
+          },
+          resumeHint: { type: "string", description: "How the user should tell Pixiu to continue, or what Pixiu should do after the action is complete." },
+        },
+        required: ["title", "reason", "instructions"],
+      },
+      async execute(input) {
+        const title = stringField(input, "title")
+        const reason = stringField(input, "reason")
+        const instructions = normalizeStringList(input.instructions)
+        if (!instructions.length) throw new Error("request_user_action.instructions must include at least one step.")
+        const category = normalizeUserActionCategory(input.category)
+        const resumeHint = typeof input.resumeHint === "string" && input.resumeHint.trim() ? input.resumeHint.trim() : "完成后回复我，我会继续。"
+        return {
+          ok: true,
+          content: [
+            title,
+            "",
+            reason,
+            "",
+            "Steps:",
+            ...instructions.map((item, index) => `${index + 1}. ${item}`),
+            "",
+            `Resume: ${resumeHint}`,
+          ].join("\n"),
+          metadata: {
+            userActionRequired: true,
+            category,
+            title,
+            reason,
+            instructions,
+            resumeHint,
+            activity: {
+              kind: "permission",
+              title,
+              summary: reason,
+              status: "skipped",
+              details: {
+                userActionRequired: true,
+                category,
+                instructions,
+                resumeHint,
+              },
+            },
+          },
+        }
       },
     },
     {

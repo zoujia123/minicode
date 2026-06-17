@@ -34,6 +34,7 @@ import { collectSessionEvidence, type SessionEvidence } from "../session/evidenc
 import type { JsonObject } from "../shared/json"
 import type { PermissionDecision, PermissionMode, PermissionRequest } from "../permission/types"
 import type { SkillLoader } from "../skills/loader"
+import { createManagedEnv, findAgentReachSource, inspectManagedEnv, installAgentReach, type ManagedEnvStatus } from "../tools/managed-env"
 
 const VERSION = "0.0.0"
 const CHAT_CTRL_C = "__PIXIU_CTRL_C__"
@@ -76,6 +77,11 @@ Agent commands:
 
 Inspect:
   pixiu tool list
+  pixiu tools env status
+  pixiu tools env create
+  pixiu tools env path
+  pixiu tools install agent-reach
+  pixiu tools doctor
   pixiu session list
   pixiu session resume
   pixiu session show <session-id>
@@ -86,6 +92,7 @@ Config:
   pixiu config setup
   pixiu config use <baseURL|alias> <apiKey> [model]
   pixiu config use-env <baseURL|alias> <ENV_VAR> [model]
+  pixiu config max-steps [count]
   pixiu config list
   pixiu config get <key>
   pixiu config set <key> <json-value-or-string>
@@ -127,6 +134,7 @@ Examples:
   pixiu run --output-format stream-json "summarize recent changes"
   pixiu config use https://api.example.com/v1 sk-... openai-compatible/model
   pixiu config use-env siliconflow PIXIU_API_KEY deepseek-ai/DeepSeek-V3.2
+  pixiu config max-steps 40
   pixiu config set sandbox.shellTimeoutMs 30000
   pixiu ui
 
@@ -277,6 +285,7 @@ async function doctor(args: string[] = []): Promise<CliResult> {
       : "apiKeyEnv not configured"
   const skillDiagnostics = await runtime.skills.diagnostics()
   const mcpStatuses = await inspectMCPServers(config)
+  const managedTools = await inspectManagedEnv(config)
   const checks = [
     ["config", "ok", "pixiu.jsonc loaded"],
     ["bun", "ok", `bun ${Bun.version}`],
@@ -284,6 +293,7 @@ async function doctor(args: string[] = []): Promise<CliResult> {
     ["provider", providerKeyPresent ? "ok" : "warn", providerDetail],
     ["sessions", "ok", ".pixiu/state/sessions"],
     ["workspace", "ok", `${config.sandbox.mode} (${config.sandbox.workspaceDir})`],
+    ["tools", managedTools.enabled && managedTools.managerAvailable ? "ok" : "warn", `${managedTools.manager} ${managedTools.name}, agent-reach ${managedTools.tools["agent-reach"]?.available ? "available" : "missing"}`],
     ["skills", skillDiagnostics.length ? "warn" : "ok", `${runtime.config.skills.paths.length} paths, ${skillDiagnostics.length} diagnostics`],
     ["mcp", mcpStatuses.some((server) => server.status === "failed") ? "warn" : "ok", `${mcpStatuses.length} configured`],
   ]
@@ -293,6 +303,7 @@ async function doctor(args: string[] = []): Promise<CliResult> {
       output: JSON.stringify(
         {
           checks: checks.map(([check, status, detail]) => ({ check, status, detail })),
+          managedTools,
           skillDiagnostics,
         },
         null,
@@ -669,7 +680,7 @@ async function chatConfigCommand(raw: string, input: ChatInput): Promise<CliResu
     return { exitCode: 0, output: formatProviderConfigResult(result), reload: true }
   }
   const result = await configCommand(args)
-  return { ...result, reload: ["set", "use", "use-env", "setup"].includes(args[0] ?? "") }
+  return { ...result, reload: ["set", "use", "use-env", "setup", "max-steps", "maxSteps"].includes(args[0] ?? "") }
 }
 
 async function askChatInput(
@@ -1631,6 +1642,14 @@ async function configCommand(args: string[]): Promise<CliResult> {
     const result = await configureProviderFromArgs(args.slice(1), "apiKeyEnv")
     return { exitCode: 0, output: formatProviderConfigResult(result) }
   }
+  if (subcommand === "max-steps" || subcommand === "maxSteps") {
+    if (!key) return { exitCode: 0, output: `maxSteps: ${defaultAgentMaxSteps(config)}` }
+    const maxSteps = parseMaxSteps(key)
+    const projectConfig = await readProjectConfig()
+    writeConfigPath(projectConfig, "agents.default.maxSteps", maxSteps)
+    await writeProjectConfig(projectConfig)
+    return { exitCode: 0, output: `set agents.default.maxSteps ${maxSteps}` }
+  }
   if (subcommand === "setup") {
     throw new PixiuError("config setup is interactive. Run it inside chat as `/config setup`.", { code: "CLI_USAGE" })
   }
@@ -1643,7 +1662,7 @@ async function configCommand(args: string[]): Promise<CliResult> {
     return { exitCode: 0, output: `set ${key}` }
   }
   throw new PixiuError(
-    "config requires show, setup, use <baseURL|alias> <apiKey> [model], use-env <baseURL|alias> <ENV_VAR> [model], validate, list, get <key>, or set <key> <value>",
+    "config requires show, setup, use <baseURL|alias> <apiKey> [model], use-env <baseURL|alias> <ENV_VAR> [model], max-steps [count], validate, list, get <key>, or set <key> <value>",
     { code: "CLI_USAGE" },
   )
 }
@@ -1652,6 +1671,73 @@ async function toolCommand(args: string[]): Promise<CliResult> {
   if (args[0] !== "list") throw new PixiuError("tool requires list", { code: "CLI_USAGE" })
   const runtime = await buildRuntime({ loadLLM: false })
   return { exitCode: 0, output: formatToolList(runtime.tools.list()) }
+}
+
+async function toolsCommand(args: string[]): Promise<CliResult> {
+  const [section, subcommand, ...rest] = args
+  const json = has(args, "--json")
+  const yes = has(args, "--yes")
+  const config = await loadConfig()
+  if (section === "env") {
+    if (subcommand === "status" || subcommand === undefined) {
+      const status = await inspectManagedEnv(config)
+      if (json) return { exitCode: 0, output: JSON.stringify(status, null, 2) }
+      return { exitCode: 0, output: formatManagedEnvStatus(status) }
+    }
+    if (subcommand === "path") {
+      const status = await inspectManagedEnv(config)
+      return { exitCode: 0, output: status.envPath }
+    }
+    if (subcommand === "create") {
+      if (!yes) {
+        const status = await inspectManagedEnv(config)
+        return {
+          exitCode: 0,
+          output: [
+            "Managed tool environment create preview.",
+            `manager: ${status.manager}`,
+            `name: ${status.name}`,
+            `path: ${status.envPath}`,
+            `python: ${status.python}`,
+            "",
+            "Run `pixiu tools env create --yes` to create it.",
+          ].join("\n"),
+        }
+      }
+      const result = await createManagedEnv(config)
+      return { exitCode: result.exitCode === 0 ? 0 : 1, output: [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n") }
+    }
+  }
+  if (section === "install") {
+    const tool = subcommand
+    if (tool !== "agent-reach") throw new PixiuError("tools install currently supports: agent-reach", { code: "CLI_USAGE" })
+    const sourceFlag = takeFlagValue(rest, "--source")
+    const sourcePath = sourceFlag.value || await findAgentReachSource(process.cwd())
+    if (!yes) {
+      const status = await inspectManagedEnv(config)
+      return {
+        exitCode: 0,
+        output: [
+          "Managed tool install preview.",
+          "tool: agent-reach",
+          `manager: ${status.manager}`,
+          `env: ${status.name}`,
+          `path: ${status.envPath}`,
+          `source: ${sourcePath ?? "agent-reach package"}`,
+          "",
+          "Run `pixiu tools install agent-reach --yes` to install into the managed environment.",
+        ].join("\n"),
+      }
+    }
+    const result = await installAgentReach(config, sourcePath ? { sourcePath } : {})
+    return { exitCode: result.exitCode === 0 ? 0 : 1, output: [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n") }
+  }
+  if (section === "doctor") {
+    const status = await inspectManagedEnv(config)
+    if (json) return { exitCode: 0, output: JSON.stringify(status, null, 2) }
+    return { exitCode: 0, output: formatManagedEnvStatus(status) }
+  }
+  throw new PixiuError("tools requires env status, env create, env path, install agent-reach, or doctor", { code: "CLI_USAGE" })
 }
 
 async function uiCommand(args: string[]): Promise<CliResult> {
@@ -1995,11 +2081,13 @@ function formatProviderConfig(config: PixiuConfig) {
     `baseURL: ${provider?.baseURL ?? "(not set)"}`,
     `model: ${config.model}`,
     `credential: ${credential}`,
+    `agent maxSteps: ${defaultAgentMaxSteps(config)}`,
     "",
     "Quick setup:",
     "  /config setup",
     "  /config use siliconflow <api-key> deepseek-ai/DeepSeek-V3.2",
     "  /config use-env siliconflow PIXIU_API_KEY deepseek-ai/DeepSeek-V3.2",
+    "  /config max-steps 40",
   ].join("\n")
 }
 
@@ -2249,6 +2337,27 @@ function formatToolList(tools: Array<{ name: string; description: string }>) {
   return table([["tool", "description"], ...tools.map((tool) => [tool.name, tool.description])], { header: true })
 }
 
+function formatManagedEnvStatus(status: ManagedEnvStatus) {
+  const tools = Object.values(status.tools)
+  return [
+    "Managed tool environment",
+    `enabled: ${status.enabled ? "yes" : "no"}`,
+    `manager: ${status.manager}${status.managerCommand ? ` (${status.managerCommand})` : ""}`,
+    `manager available: ${status.managerAvailable ? "yes" : "no"}`,
+    `name: ${status.name}`,
+    `python: ${status.python}`,
+    `path: ${status.envPath}`,
+    `bin: ${status.binPath}`,
+    `exists: ${status.exists ? "yes" : "no"}`,
+    `PATH active: ${status.pathActive ? "yes" : "no"}`,
+    `autoCreate: ${status.autoCreate ? "yes" : "no"}`,
+    `autoInstall: ${status.autoInstall}`,
+    "",
+    "Installed tools",
+    ...(tools.length ? tools.map((tool) => `${tool.command}: ${tool.available ? tool.path ?? "available" : "missing"}`) : ["none"]),
+  ].join("\n")
+}
+
 function formatSkillList(skills: Array<{ name: string; description: string; source: { relativePath: string } }>) {
   return table([["skill", "description", "source"], ...skills.map((skill) => [skill.name, skill.description, skill.source.relativePath])], {
     header: true,
@@ -2350,6 +2459,18 @@ function parseConfigValue(raw: string) {
   } catch {
     return raw
   }
+}
+
+function parseMaxSteps(raw: string) {
+  const maxSteps = Number(raw)
+  if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > 200) {
+    throw new PixiuError("config max-steps requires an integer from 1 to 200", { code: "CLI_USAGE" })
+  }
+  return maxSteps
+}
+
+function defaultAgentMaxSteps(config: PixiuConfig) {
+  return config.agents.default?.maxSteps ?? defaultConfig.agents.default.maxSteps
 }
 
 async function mcpCommand(args: string[]): Promise<CliResult> {
@@ -2580,6 +2701,8 @@ export async function runCli(argv = process.argv.slice(2), options: CliOptions =
         return await configCommand(args)
       case "tool":
         return await toolCommand(args)
+      case "tools":
+        return await toolsCommand(args)
       case "ui":
       case "serve":
         return await uiCommand(args)
